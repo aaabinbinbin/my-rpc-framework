@@ -653,6 +653,55 @@ Type genericReturnType = method.getGenericReturnType();
 - 可以代理没有接口的类
 - 同样能够封装 RPC 请求
 
+**实现提示**：
+1. 使用 `Enhancer` 创建代理对象
+2. 实现 `MethodInterceptor` 接口拦截方法调用
+3. 在 `intercept` 方法中构建 `RpcRequest`
+4. 注意：CGLIB 是通过继承实现的，所以不能代理 final 类和方法
+
+**参考代码结构**：
+```java
+public class RpcProxyFactory {
+    
+    // JDK 动态代理版本（已实现）
+    public static <T> T createProxy(Class<T> interfaceClass) {
+        // ...
+    }
+    
+    // CGLIB 版本（需要你实现）
+    public static <T> T createProxyByCGLib(Class<T> classToProxy) {
+        Enhancer enhancer = new Enhancer();
+        enhancer.setSuperclass(classToProxy);
+        enhancer.setCallback(new RpcMethodInterceptor());
+        return (T) enhancer.create();
+    }
+    
+    private static class RpcMethodInterceptor implements MethodInterceptor {
+        @Override
+        public Object intercept(Object obj, Method method, Object[] args, 
+                               MethodProxy proxy) throws Throwable {
+            // 1. 构建 RPC 请求
+            RpcRequest request = RpcRequest.builder()
+                .serviceName(obj.getClass().getName())
+                .methodName(method.getName())
+                .parameterTypes(method.getParameterTypes())
+                .parameters(args)
+                .returnType(method.getReturnType())
+                .requestId(UUID.randomUUID().toString())
+                .build();
+            
+            // 2. 发送远程请求（目前先模拟）
+            RpcResponse response = mockResponse(request);
+            
+            // 3. 返回结果
+            return response.getData();
+        }
+    }
+}
+```
+
+---
+
 ### 练习 2：为代理添加超时控制
 
 在 RpcInvocationHandler 中添加超时控制：
@@ -664,9 +713,142 @@ HelloService service = RpcProxyFactory.createProxy(
 );
 ```
 
+**实现提示**：
+1. 修改 `createProxy` 方法，增加超时参数
+2. 在 `InvocationHandler` 中使用 `Future` 和 `ExecutorService` 实现超时控制
+3. 使用 `future.get(timeout, TimeUnit)` 设置超时
+4. 如果超时，抛出 `TimeoutException`
+
+**参考代码结构**：
+```java
+public class RpcProxyFactory {
+    
+    // 带超时的代理创建方法
+    public static <T> T createProxy(Class<T> interfaceClass, long timeoutMillis) {
+        return (T) Proxy.newProxyInstance(
+            interfaceClass.getClassLoader(),
+            new Class<?>[]{interfaceClass},
+            new RpcInvocationHandler(interfaceClass, timeoutMillis)
+        );
+    }
+    
+    private static class RpcInvocationHandler implements InvocationHandler {
+        
+        private final Class<?> serviceClass;
+        private final long timeoutMillis;  // 超时时间
+        
+        public RpcInvocationHandler(Class<?> serviceClass, long timeoutMillis) {
+            this.serviceClass = serviceClass;
+            this.timeoutMillis = timeoutMillis;
+        }
+        
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            // 1. 构建 RPC 请求
+            RpcRequest request = buildRequest(method, args);
+            
+            // 2. 使用线程池执行远程调用，并设置超时
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                Future<Object> future = executor.submit(() -> {
+                    RpcResponse response = sendRemoteRequest(request);
+                    return response.getData();
+                });
+                
+                // 设置超时
+                return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                throw new RuntimeException("RPC 调用超时（超过 " + timeoutMillis + "ms）", e);
+            } finally {
+                executor.shutdown();
+            }
+        }
+    }
+}
+```
+
+**思考题**：
+- 每次调用都创建新的线程池是否合理？如何优化？
+- 超时时间应该全局统一配置，还是每个服务单独配置？
+
+---
+
 ### 练习 3：为代理添加重试机制
 
 当远程调用失败时，自动重试 3 次。
+
+**实现提示**：
+1. 在 `InvocationHandler` 中添加重试次数参数
+2. 使用循环实现重试逻辑
+3. 记录重试次数，超过最大重试次数后抛出异常
+4. 可以在每次重试之间添加短暂延迟
+
+**参考代码结构**：
+```java
+public class RpcProxyFactory {
+    
+    // 带重试的代理创建方法
+    public static <T> T createProxyWithRetry(Class<T> interfaceClass, int maxRetries) {
+        return (T) Proxy.newProxyInstance(
+            interfaceClass.getClassLoader(),
+            new Class<?>[]{interfaceClass},
+            new RpcInvocationHandler(interfaceClass, maxRetries)
+        );
+    }
+    
+    private static class RpcInvocationHandler implements InvocationHandler {
+        
+        private final Class<?> serviceClass;
+        private final int maxRetries;  // 最大重试次数
+        
+        public RpcInvocationHandler(Class<?> serviceClass, int maxRetries) {
+            this.serviceClass = serviceClass;
+            this.maxRetries = maxRetries;
+        }
+        
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            RpcRequest request = buildRequest(method, args);
+            
+            int retryCount = 0;
+            Exception lastException = null;
+            
+            // 重试逻辑
+            while (retryCount <= maxRetries) {
+                try {
+                    log.info("[RPC] 第 {} 次尝试调用：{}.{}", 
+                             retryCount + 1, serviceClass.getName(), method.getName());
+                    
+                    RpcResponse response = sendRemoteRequest(request);
+                    
+                    if (response.getCode() == 200) {
+                        return response.getData();
+                    } else {
+                        throw new RuntimeException("RPC 调用失败：" + response.getMessage());
+                    }
+                } catch (Exception e) {
+                    lastException = e;
+                    retryCount++;
+                    
+                    if (retryCount > maxRetries) {
+                        break;
+                    }
+                    
+                    // 可选：在重试前等待一小段时间（退避策略）
+                    Thread.sleep(100 * retryCount);
+                }
+            }
+            
+            throw new RuntimeException("RPC 调用失败，已重试 " + maxRetries + " 次", lastException);
+        }
+    }
+}
+```
+
+**进阶挑战**：
+- 实现指数退避策略（第一次等 100ms，第二次等 200ms，第三次等 400ms...）
+- 只对特定类型的异常进行重试（如网络超时），对业务异常不重试
+- 结合超时控制和重试机制，创建一个功能完整的代理工厂
 
 ---
 

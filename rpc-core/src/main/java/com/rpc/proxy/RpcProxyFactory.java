@@ -25,12 +25,9 @@ public class RpcProxyFactory {
      */
     @SuppressWarnings("unchecked")
     public static <T> T createProxyBySDK(Class<T> serviceClass) {
-        return (T) Proxy.newProxyInstance(
-                serviceClass.getClassLoader(),
-                new Class<?>[]{serviceClass}, // serviceClass可能是接口，所以不使用serviceClass.getInterfaces()
-                new RpcInvocationHandler(serviceClass)
-        );
+        return createProxyBySDK(serviceClass);
     }
+
 
     /**
      * 创建代理对象
@@ -61,14 +58,7 @@ public class RpcProxyFactory {
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
             // 1. 构建 RPC 请求
-            RpcRequest request = RpcRequest.builder()
-                    .requestId(UUID.randomUUID().toString())
-                    .serviceName(serviceClass.getName())
-                    .methodName(method.getName())
-                    .parameterTypes(method.getParameterTypes())
-                    .parameters(args)
-                    .returnType(method.getReturnType())
-                    .build();
+            RpcRequest request = buildRpcRequest(serviceClass, method, args);
             log.info("[RPC] 准备调用：{}.{}", request.getServiceName(), request.getMethodName());
             log.debug("[RPC] 请求详情：{}", request);
             // 2. TODO: 发送远程请求（留待后续章节实现）
@@ -106,20 +96,14 @@ public class RpcProxyFactory {
     private static class RpcMethodInterceptor implements MethodInterceptor {
 
         @Override
-        public Object intercept(Object o, Method method, Object[] objects, MethodProxy methodProxy) throws Throwable {
+        public Object intercept(Object o, Method method, Object[] args, MethodProxy methodProxy) throws Throwable {
             // 1. 构建 RPC 请求
-            RpcRequest request = RpcRequest.builder()
-                    .requestId(UUID.randomUUID().toString())
-                    .serviceName(method.getName())
-                    .methodName(method.getName())
-                    .parameterTypes(method.getParameterTypes())
-                    .parameters(objects)
-                    .returnType(method.getReturnType())
-                    .build();
+            RpcRequest request = buildRpcRequest(o.getClass(), method, args);
             log.info("[RPC] 准备调用：{}.{}", request.getServiceName(), request.getMethodName());
             log.debug("[RPC] 请求详情：{}", request);
             // 2.发送远程请求（留待后续章节实现）
             // RpcResponse response = sendRemoteRequest(request);
+
 
             // 3. 暂时模拟响应
             RpcResponse response = mockResponse(request);
@@ -145,5 +129,23 @@ public class RpcProxyFactory {
             }
             return RpcResponse.success(mockResult, request.getRequestId());
         }
+    }
+
+    /**
+     * 构造RpcRequest
+     * @param serviceClass 服务类
+     * @param method 调用方法
+     * @param args 传入参数
+     * @return 返回RPCRequest
+     */
+    private static RpcRequest buildRpcRequest(Class<?> serviceClass, Method method, Object[] args) {
+        return RpcRequest.builder()
+                .requestId(UUID.randomUUID().toString())
+                .serviceName(serviceClass.getName())
+                .methodName(method.getName())
+                .parameterTypes(method.getParameterTypes())
+                .parameters(args)
+                .returnType(method.getReturnType())
+                .build();
     }
 }
