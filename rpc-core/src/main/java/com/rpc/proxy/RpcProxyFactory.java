@@ -25,9 +25,12 @@ public class RpcProxyFactory {
      */
     @SuppressWarnings("unchecked")
     public static <T> T createProxyBySDK(Class<T> serviceClass) {
-        return createProxyBySDK(serviceClass);
+        return (T) Proxy.newProxyInstance(
+                serviceClass.getClassLoader(),
+                new Class<?>[]{serviceClass}, // serviceClass可能是接口，所以不使用serviceClass.getInterfaces()
+                new RpcInvocationHandler(serviceClass)
+        );
     }
-
 
     /**
      * 创建代理对象
