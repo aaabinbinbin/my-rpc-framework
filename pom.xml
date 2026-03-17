@@ -32,6 +32,8 @@
         <slf4j.version>1.7.36</slf4j.version>
         <logback.version>1.2.12</logback.version>
         <cglib.version>3.3.0</cglib.version>
+        <jackson.version>2.15.2</jackson.version>
+        <hessian.version>4.0.66</hessian.version>
     </properties>
 
     <dependencyManagement>
@@ -55,6 +57,20 @@
                 <groupId>com.esotericsoftware</groupId>
                 <artifactId>kryo</artifactId>
                 <version>${kryo.version}</version>
+            </dependency>
+
+            <!-- Hessian 序列化 -->
+            <dependency>
+                <groupId>com.caucho</groupId>
+                <artifactId>hessian</artifactId>
+                <version>${hessian.version}</version>
+            </dependency>
+
+            <!-- Jackson JSON 序列化 -->
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
             </dependency>
 
             <!-- CGLib  -->

@@ -775,10 +775,283 @@ Java 原生:
 
 ### 课后思考
 
-1. 为什么 Kryo 需要使用 ThreadLocal 封装？
-2. Protobuf 性能这么好，为什么不用作本框架的默认序列化器？
-3. 如何在不修改代码的情况下切换序列化方式？
-4. 如果客户端和服务端使用不同的序列化器，会出现什么问题？如何解决？
+#### 1. 为什么 Kryo 需要使用 ThreadLocal 封装？
+
+**答案**：
+
+Kryo **不是线程安全**的，主要原因如下：
+
+1. **内部状态可变**：Kryo 在序列化/反序列化过程中会修改内部状态（如对象引用跟踪、深度计数等）
+2. **对象引用追踪**：当 `setReferences(true)` 时，Kryo 会记录已处理的对象引用，多线程并发会导致引用混乱
+3. **缓冲区共享**：Kryo 内部使用缓冲区，多线程同时写入会导致数据损坏
+
+**错误示例**（不使用 ThreadLocal）：
+```java
+// ❌ 错误：多个线程共享同一个 Kryo 实例
+private static final Kryo kryo = new Kryo();  // 线程不安全！
+
+public byte[] serialize(Object obj) {
+    // 线程 A 和线程 B 同时调用这里会发生冲突
+    kryo.writeObject(output, obj);
+}
+```
+
+**正确做法**（使用 ThreadLocal）：
+```java
+// ✅ 正确：每个线程独享一个 Kryo 实例
+private static final ThreadLocal<Kryo> kryoLocal = ThreadLocal.withInitial(() -> {
+    Kryo kryo = new Kryo();
+    kryo.setReferences(true);
+    kryo.setRegistrationRequired(false);
+    return kryo;
+});
+
+public byte[] serialize(Object obj) {
+    // 每个线程获取自己专属的 Kryo 实例
+    Kryo kryo = kryoLocal.get();
+    kryo.writeObject(output, obj);
+}
+```
+
+**ThreadLocal 的工作原理**：
+```
+线程 A → ThreadLocal → Kryo 实例 A
+线程 B → ThreadLocal → Kryo 实例 B
+线程 C → ThreadLocal → Kryo 实例 C
+```
+
+这样确保了每个线程都有自己独立的 Kryo 实例，避免了并发冲突。
+
+---
+
+#### 2. Protobuf 性能这么好，为什么不用作本框架的默认序列化器？
+
+**答案**：
+
+虽然 Protobuf 性能最佳，但有以下原因不适合作为**教学 RPC 框架**的默认选择：
+
+| 考虑因素 | Protobuf | Kryo | 说明 |
+|---------|----------|------|------|
+| **学习成本** | 高 | 低 | Protobuf 需要学习 `.proto` 语法和编译流程 |
+| **开发效率** | 低 | 高 | Protobuf 需要先定义 schema，再编译生成代码 |
+| **代码侵入性** | 强 | 弱 | Protobuf 必须使用生成的类，Kryo 可以直接序列化普通 Java 对象 |
+| **灵活性** | 差 | 好 | Protobuf 修改结构需重新编译，Kryo 自动适应类变化 |
+| **教学重点** | 分散精力 | 聚焦核心 | 我们的重点是 RPC 原理，不是序列化技术 |
+
+**具体对比**：
+
+**Protobuf 使用流程**：
+```bash
+# 1. 编写 proto 文件
+syntax = "proto3";
+message User {
+    string name = 1;
+    int32 age = 2;
+}
+
+# 2. 编译生成 Java 类
+protoc --java_out=. user.proto
+
+# 3. 使用生成的类
+User user = User.newBuilder()
+    .setName("张三")
+    .setAge(25)
+    .build();
+```
+
+**Kryo 使用流程**：
+```java
+// 直接序列化普通 Java 对象
+User user = new User("张三", 25);
+kryo.writeObject(output, user);
+```
+
+**结论**：
+- **生产环境**：如果是高性能、跨语言的微服务场景，优先选择 Protobuf
+- **学习环境**：Kryo 更简单，可以让我们专注于 RPC 核心机制的学习
+- **扩展性**：我们设计了统一的 `Serializer` 接口，后续可以轻松替换为 Protobuf
+
+---
+
+#### 3. 如何在不修改代码的情况下切换序列化方式？
+
+**答案**：
+
+通过**配置文件 + 工厂模式**实现：
+
+**方案一：使用配置文件**
+
+创建 `rpc.properties` 配置文件：
+```properties
+# 序列化器配置
+rpc.serializer.type=kryo
+# 可选值：kryo, json, hessian, java, protobuf
+```
+
+在 `SerializerFactory` 中读取配置：
+```java
+public class SerializerFactory {
+    
+    private static final Map<Integer, Serializer> SERIALIZER_MAP = new HashMap<>();
+    private static final Serializer DEFAULT_SERIALIZER;
+    
+    static {
+        // 注册各种序列化器
+        SERIALIZER_MAP.put(KryoSerializer.TYPE_KRYO, new KryoSerializer());
+        SERIALIZER_MAP.put(JsonSerializer.TYPE_JSON, new JsonSerializer());
+        SERIALIZER_MAP.put(JavaSerializer.TYPE_JAVA, new JavaSerializer());
+        
+        // 从配置文件读取默认序列化器类型
+        String type = loadConfigProperty("rpc.serializer.type", "kryo");
+        DEFAULT_SERIALIZER = getSerializerByName(type);
+    }
+    
+    private static Serializer getSerializerByName(String name) {
+        switch (name.toLowerCase()) {
+            case "kryo": return new KryoSerializer();
+            case "json": return new JsonSerializer();
+            case "java": return new JavaSerializer();
+            default: return new KryoSerializer();
+        }
+    }
+}
+```
+
+**方案二：使用系统属性**
+
+启动时通过 JVM 参数指定：
+```bash
+java -Drpc.serializer.type=json -jar my-app.jar
+```
+
+代码中读取：
+```java
+String type = System.getProperty("rpc.serializer.type", "kryo");
+```
+
+**方案三：使用 Spring 配置（如果集成 Spring）**
+
+```yaml
+# application.yml
+rpc:
+  serializer:
+    type: kryo  # 或 json, hessian, protobuf
+```
+
+```java
+@Configuration
+public class RpcConfig {
+    
+    @Value("${rpc.serializer.type:kryo}")
+    private String serializerType;
+    
+    @Bean
+    public Serializer serializer() {
+        return SerializerFactory.getSerializerByName(serializerType);
+    }
+}
+```
+
+**切换效果**：
+- 只需要修改配置文件，不需要改动任何代码
+- 可以在开发环境用 JSON（便于调试）
+- 生产环境用 Kryo（性能更好）
+
+---
+
+#### 4. 如果客户端和服务端使用不同的序列化器，会出现什么问题？如何解决？
+
+**答案**：
+
+**问题**：
+
+1. **数据格式不兼容**：不同序列化器的二进制格式完全不同
+   - Kryo 序列化的数据，JSON 无法解析
+   - Protobuf 序列化的数据，Hessian 无法解析
+
+2. **解析失败**：服务端会用错误的格式解析数据，导致：
+   ```java
+   // 客户端用 Kryo 序列化
+   byte[] data = kryoSerializer.serialize(request);
+   
+   // 服务端用 JSON 反序列化
+   jsonSerializer.deserialize(data, RpcRequest.class);
+   // ❌ 抛出异常：JsonParseException
+   ```
+
+3. **数据错乱**：即使不抛异常，解析出的数据也是错误的
+
+**解决方案**：
+
+**方案一：协议头标识序列化器类型** ⭐（推荐）
+
+在 RPC 协议中添加一个字节标识序列化器：
+```
+┌──────────────┬──────────────┬──────────────┐
+│  魔数 (4B)    │  协议版本 (1B) │ 序列化类型 (1B) │ ...
+└──────────────┴──────────────┴──────────────┘
+                              ↑
+                         告诉对方用什么序列化器
+```
+
+编码时：
+```java
+// 写入协议头
+byteBuf.writeInt(MAGIC_NUMBER);           // 魔数
+byteBuf.writeByte(PROTOCOL_VERSION);      // 版本号
+byteBuf.writeByte(serializer.getSerializerType());  // 序列化器类型标识
+
+// 写入序列化后的数据
+byte[] data = serializer.serialize(request);
+byteBuf.writeBytes(data);
+```
+
+解码时：
+```java
+// 读取协议头
+int magic = byteBuf.readInt();            // 验证魔数
+byte version = byteBuf.readByte();        // 检查版本
+byte serializerType = byteBuf.readByte(); // 获取序列化器类型
+
+// 根据类型选择对应的序列化器
+Serializer serializer = SerializerFactory.getSerializer(serializerType);
+
+// 反序列化
+byte[] data = new byte[byteBuf.readableBytes()];
+byteBuf.readBytes(data);
+RpcRequest request = serializer.deserialize(data, RpcRequest.class);
+```
+
+**优点**：
+- 客户端和服务端可以使用不同的序列化器
+- 动态协商，灵活性强
+- 支持多种序列化器共存
+
+**方案二：握手阶段协商**
+
+在建立连接时协商使用哪种序列化器：
+```java
+// 1. 客户端发送支持的序列化器列表
+List<String> clientSupported = Arrays.asList("kryo", "json", "protobuf");
+
+// 2. 服务端选择一个都支持的
+String agreed = negotiate(clientSupported, serverSupported);
+
+// 3. 后续通信都使用这个序列化器
+```
+
+**方案三：强制统一配置**
+
+最简单粗暴的方式：
+```properties
+# 所有服务统一配置
+rpc.serializer.type=kryo
+```
+
+**总结**：
+- **最佳实践**：方案一（协议头标识），这是主流 RPC 框架的做法
+- **Dubbo 的做法**：在协议头中用一个字节标识序列化器类型
+- **gRPC 的做法**：固定使用 Protobuf，避免这个问题
 
 ---
 
@@ -795,6 +1068,80 @@ Java 原生:
 </dependency>
 ```
 
+**实现提示**：
+1. Hessian 使用 `Hessian2Input` 和 `Hessian2Output` 进行序列化和反序列化
+2. 需要处理输入输出流的关闭
+3. Hessian 支持复杂对象和循环引用
+4. 注意 Hessian 的序列化类型标识（建议定义为 4）
+
+**参考代码结构**：
+```java
+package com.rpc.core.serialize.impl;
+
+import com.caucho.hessian.io.Hessian2Input;
+import com.caucho.hessian.io.Hessian2Output;
+import com.rpc.core.serialize.Serializer;
+import lombok.extern.slf4j.Slf4j;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+
+/**
+ * Hessian 序列化器
+ */
+@Slf4j
+public class HessianSerializer implements Serializer {
+    
+    public static final int TYPE_HESSIAN = 4;
+    
+    @Override
+    public byte[] serialize(Object obj) {
+        if (obj == null) {
+            return new byte[0];
+        }
+        
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            Hessian2Output output = new Hessian2Output(baos);
+            output.writeObject(obj);
+            output.flush();
+            return baos.toByteArray();
+        } catch (IOException e) {
+            log.error("Hessian 序列化失败", e);
+            throw new RuntimeException("Hessian 序列化失败", e);
+        }
+    }
+    
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> T deserialize(byte[] bytes, Class<T> clazz) {
+        if (bytes == null || bytes.length == 0) {
+            return null;
+        }
+        
+        try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes)) {
+            Hessian2Input input = new Hessian2Input(bais);
+            return (T) input.readObject();
+        } catch (IOException e) {
+            log.error("Hessian 反序列化失败", e);
+            throw new RuntimeException("Hessian 反序列化失败", e);
+        }
+    }
+    
+    @Override
+    public int getSerializerType() {
+        return TYPE_HESSIAN;
+    }
+}
+```
+
+**注意事项**：
+- Hessian 在反序列化时不需要指定目标类型（它会自动识别）
+- 但为了保持接口一致性，我们的方法签名仍然保留 `Class<T>` 参数
+- Hessian 是跨语言的，适合用于多语言 RPC 场景
+
+---
+
 ### 练习 2：添加序列化器配置
 
 实现一个配置文件或注解，让用户可以通过配置选择默认的序列化器：
@@ -802,9 +1149,272 @@ Java 原生:
 rpc.serializer.type=kryo  # 可选：kryo, json, hessian, java
 ```
 
+**方案一：基于 Properties 配置文件**
+
+**步骤 1：创建配置文件**
+
+在 `resources` 目录下创建 `rpc.properties`：
+```properties
+# RPC 序列化器配置
+rpc.serializer.type=kryo
+```
+
+**步骤 2：修改 SerializerFactory 读取配置**
+
+```java
+public class SerializerFactory {
+    
+    private static final Map<Integer, Serializer> SERIALIZER_MAP = new HashMap<>();
+    private static final Serializer DEFAULT_SERIALIZER;
+    
+    static {
+        // 注册各种序列化器
+        SERIALIZER_MAP.put(KryoSerializer.TYPE_KRYO, new KryoSerializer());
+        SERIALIZER_MAP.put(JsonSerializer.TYPE_JSON, new JsonSerializer());
+        SERIALIZER_MAP.put(JavaSerializer.TYPE_JAVA, new JavaSerializer());
+        SERIALIZER_MAP.put(HessianSerializer.TYPE_HESSIAN, new HessianSerializer());
+        
+        // 从配置文件加载默认序列化器
+        DEFAULT_SERIALIZER = loadDefaultSerializer();
+    }
+    
+    private static Serializer loadDefaultSerializer() {
+        try {
+            // 从 classpath 加载 rpc.properties
+            Properties props = new Properties();
+            InputStream is = SerializerFactory.class.getClassLoader()
+                .getResourceAsStream("rpc.properties");
+            
+            if (is != null) {
+                props.load(is);
+                String typeName = props.getProperty("rpc.serializer.type", "kryo");
+                return getSerializerByName(typeName);
+            }
+        } catch (Exception e) {
+            // 如果加载失败，使用 Kryo 作为默认
+            System.err.println("加载序列化器配置失败，使用默认 Kryo: " + e.getMessage());
+        }
+        return new KryoSerializer();
+    }
+    
+    private static Serializer getSerializerByName(String name) {
+        switch (name.toLowerCase().trim()) {
+            case "kryo":
+                return new KryoSerializer();
+            case "json":
+                return new JsonSerializer();
+            case "hessian":
+                return new HessianSerializer();
+            case "java":
+                return new JavaSerializer();
+            default:
+                System.err.println("未识别的序列化器：" + name + "，使用 Kryo");
+                return new KryoSerializer();
+        }
+    }
+    
+    // ... 其他方法保持不变
+}
+```
+
+**方案二：基于系统属性（推荐）**
+
+更灵活的方式是通过 JVM 启动参数配置：
+
+```java
+public class SerializerFactory {
+    
+    private static final Serializer DEFAULT_SERIALIZER;
+    
+    static {
+        // 优先从系统属性读取，如果没有则使用 kryo
+        String typeName = System.getProperty("rpc.serializer.type", "kryo");
+        DEFAULT_SERIALIZER = getSerializerByName(typeName);
+    }
+    
+    private static Serializer getSerializerByName(String name) {
+        // 同上...
+    }
+}
+```
+
+**使用方式**：
+```bash
+# 开发环境用 JSON（便于调试）
+java -Drpc.serializer.type=json -jar my-app.jar
+
+# 生产环境用 Kryo（性能更好）
+java -Drpc.serializer.type=kryo -jar my-app.jar
+```
+
+**方案三：基于 Spring Boot 配置（如果集成 Spring）**
+
+```yaml
+# application.yml
+rpc:
+  serializer:
+    type: kryo  # 可选：kryo, json, hessian, java
+```
+
+```java
+@Configuration
+@ConfigurationProperties(prefix = "rpc.serializer")
+public class RpcSerializerProperties {
+    
+    private String type = "kryo";
+    
+    @Bean
+    public Serializer serializer() {
+        return SerializerFactory.getSerializerByName(type);
+    }
+    
+    // getter/setter
+}
+```
+
+**扩展思考**：
+- 如何支持多个序列化器同时使用？（根据请求动态选择）
+- 如何在运行时动态切换序列化器？
+- 如何实现序列化器的热插拔？
+
+---
+
 ### 练习 3：支持 null 值序列化
 
 修改 KryoSerializer，使其能够正确处理 null 值。
+
+**问题分析**：
+
+默认情况下，Kryo 在处理 null 值时可能会抛出异常，我们需要特殊处理。
+
+**解决方案**：
+
+```java
+@Override
+public byte[] serialize(Object obj) {
+    if (obj == null) {
+        // 特殊标记表示 null 值
+        return new byte[]{NULL_MARKER};
+    }
+    
+    try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+         Output output = new Output(baos)) {
+        
+        Kryo kryo = kryoLocal.get();
+        kryo.writeObject(output, obj);
+        
+        return output.toBytes();
+    } catch (Exception e) {
+        log.error("Kryo 序列化失败", e);
+        throw new RuntimeException("Kryo 序列化失败", e);
+    }
+}
+
+@Override
+@SuppressWarnings("unchecked")
+public <T> T deserialize(byte[] bytes, Class<T> clazz) {
+    if (bytes == null || bytes.length == 0) {
+        return null;
+    }
+    
+    // 检查是否是 null 值的标记
+    if (bytes.length == 1 && bytes[0] == NULL_MARKER) {
+        return null;
+    }
+    
+    try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+         Input input = new Input(bais)) {
+        
+        Kryo kryo = kryoLocal.get();
+        return (T) kryo.readObject(input, clazz);
+    } catch (Exception e) {
+        log.error("Kryo 反序列化失败", e);
+        throw new RuntimeException("Kryo 反序列化失败", e);
+    }
+}
+
+// 定义 null 值标记
+private static final byte NULL_MARKER = -1;
+```
+
+**更优雅的方案：使用 Kryo 的内置机制**
+
+Kryo 提供了 `writeNull()` 方法来处理 null 值：
+
+```java
+@Override
+public byte[] serialize(Object obj) {
+    try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+         Output output = new Output(baos)) {
+        
+        Kryo kryo = kryoLocal.get();
+        
+        if (obj == null) {
+            // 写入 null 标记
+            kryo.writeClassAndObject(output, null);
+        } else {
+            kryo.writeObject(output, obj);
+        }
+        
+        return output.toBytes();
+    } catch (Exception e) {
+        log.error("Kryo 序列化失败", e);
+        throw new RuntimeException("Kryo 序列化失败", e);
+    }
+}
+
+@Override
+@SuppressWarnings("unchecked")
+public <T> T deserialize(byte[] bytes, Class<T> clazz) {
+    if (bytes == null || bytes.length == 0) {
+        return null;
+    }
+    
+    try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+         Input input = new Input(bais)) {
+        
+        Kryo kryo = kryoLocal.get();
+        // readClassAndObject 可以正确读取 null 值
+        return (T) kryo.readClassAndObject(input);
+    } catch (Exception e) {
+        log.error("Kryo 反序列化失败", e);
+        throw new RuntimeException("Kryo 反序列化失败", e);
+    }
+}
+```
+
+**测试用例**：
+
+```java
+@Test
+public void testNullSerialization() {
+    KryoSerializer serializer = new KryoSerializer();
+    
+    // 测试 null 值序列化
+    byte[] bytes = serializer.serialize(null);
+    Object result = serializer.deserialize(bytes, Object.class);
+    
+    assertNull(result);  // 应该返回 null
+}
+
+@Test
+public void testNormalSerialization() {
+    KryoSerializer serializer = new KryoSerializer();
+    User user = new User("张三", 25);
+    
+    byte[] bytes = serializer.serialize(user);
+    User result = serializer.deserialize(bytes, User.class);
+    
+    assertNotNull(result);
+    assertEquals("张三", result.getName());
+    assertEquals(25, result.getAge());
+}
+```
+
+**注意事项**：
+- 确保 `setRegistrationRequired(false)` 以支持动态类型
+- 使用 `readClassAndObject()` 而不是 `readObject()` 可以更好地处理 null 和泛型
+- 考虑是否启用对象引用追踪（`setReferences(true)`）
 
 ---
 

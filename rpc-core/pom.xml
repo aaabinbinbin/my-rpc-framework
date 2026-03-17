@@ -33,6 +33,18 @@
             <artifactId>kryo</artifactId>
         </dependency>
 
+        <!-- Hessian -->
+        <dependency>
+            <groupId>com.caucho</groupId>
+            <artifactId>hessian</artifactId>
+        </dependency>
+
+        <!-- Jackson JSON 序列化 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
         <!-- CGLib  -->
         <dependency>
             <groupId>cglib</groupId>
