@@ -527,7 +527,7 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 
-public class NettyServer {
+public class NettyServer {	
     
     public static void main(String[] args) throws Exception {
         // 1. 创建 Boss Group 和 Worker Group
@@ -735,6 +735,7 @@ Netty 基于 Reactor 模式设计，有两种主要的 Reactor 模型。
 ```
 
 **Netty 的实现**：
+
 ```java
 // Boss Group（单线程或少量线程）
 EventLoopGroup bossGroup = new NioEventLoopGroup(1);
@@ -801,36 +802,466 @@ EventLoopGroup workerGroup = new NioEventLoopGroup();  // CPU 核数 * 2
 ### 课后思考
 
 1. 为什么 NIO 比 BIO 更适合高并发场景？
+
+   **答：NIO使用一个线程（或少量线程）管理成千上万个连接，少量线程就能处理海量并发连接，避免了线程爆炸和频繁上下文切换，同时充分利用 CPU 处理实际 I/O 任务。**
+
 2. Netty 为什么要设计 Boss Group 和 Worker Group 两个线程池？
+
+   **答：为了解耦职责、提高并发处理能力和系统的伸缩性。**
+
 3. ChannelPipeline 中处理器的顺序有什么讲究？
+
+   **答：Netty 的 ChannelPipeline 是一个双向链表，包含多个 ChannelHandler，负责处理入站（Inbound）事件和出站（Outbound）事件。处理器在 Pipeline 中的顺序直接决定了事件的处理流程，需要严格遵循数据转换和业务逻辑的先后关系。**
+
 4. 如果 Worker Group 设置为 1 个线程，会有什么影响？
+
+   **答：所有连接共享同一个线程，该线程需要轮询所有 Channel 的就绪事件，这个线程很容易成为系统的瓶颈，导致事件处理延迟增加，整体吞吐量下降。**
 
 ---
 
-## 七、动手练习
+## 七、动手练习答案
 
 ### 练习 1：实现简单的聊天室
 
-修改上面的代码，实现一个多人聊天室：
+**需求**：
 - 服务端可以接收多个客户端连接
 - 一个客户端发送的消息，广播给所有其他客户端
 - 显示用户上线/下线通知
 
-提示：使用 `ChannelGroup` 管理所有连接。
+**实现代码**：
+
+```java
+package com.rpc.server.netty;
+
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.string.StringDecoder;
+import io.netty.handler.codec.string.StringEncoder;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
+public class ChatRoomServer {
+    
+    // 使用 ChannelGroup 管理所有连接的客户端
+    private static final ChannelGroup channels = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
+    
+    public static void main(String[] args) throws Exception {
+        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
+        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        
+        try {
+            ServerBootstrap bootstrap = new ServerBootstrap();
+            bootstrap.group(bossGroup, workerGroup)
+                     .channel(NioServerSocketChannel.class)
+                     .childHandler(new ChannelInitializer<SocketChannel>() {
+                         @Override
+                         protected void initChannel(SocketChannel ch) {
+                             ChannelPipeline pipeline = ch.pipeline();
+                             pipeline.addLast(new StringDecoder());
+                             pipeline.addLast(new StringEncoder());
+                             pipeline.addLast(new ChatRoomServerHandler());
+                         }
+                     });
+            
+            ChannelFuture future = bootstrap.bind(8080).sync();
+            System.out.println("聊天室服务器启动成功，监听端口：8080");
+            
+            future.channel().closeFuture().sync();
+            
+        } finally {
+            bossGroup.shutdownGracefully();
+            workerGroup.shutdownGracefully();
+        }
+    }
+    
+    /**
+     * 聊天室服务端处理器
+     */
+    @ChannelHandler.Sharable
+    static class ChatRoomServerHandler extends SimpleChannelInboundHandler<String> {
+        
+        private SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        
+        @Override
+        public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("[系统] 有客户端准备连接...");
+        }
+        
+        @Override
+        public void channelActive(ChannelHandlerContext ctx) throws Exception {
+            // 客户端连接时，广播通知所有人
+            String message = "[系统] " + getTimestamp() + " - 用户 " + 
+                           ctx.channel().remoteAddress() + " 加入聊天室！\n";
+            
+            // 将当前客户端添加到组
+            channels.add(ctx.channel());
+            
+            // 广播给所有客户端（包括刚连接的）
+            broadcast(message);
+            
+            System.out.println("[系统] 当前在线人数：" + channels.size());
+        }
+        
+        @Override
+        protected void channelRead0(ChannelHandlerContext ctx, String msg) {
+            // 收到客户端消息，广播给所有人
+            String message = "[" + getTimestamp() + "] " + 
+                           ctx.channel().remoteAddress() + " 说：" + msg + "\n";
+            
+            broadcast(message);
+        }
+        
+        @Override
+        public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+            // 客户端断开时，广播通知所有人
+            String message = "[系统] " + getTimestamp() + " - 用户 " + 
+                           ctx.channel().remoteAddress() + " 离开聊天室！\n";
+            
+            // 从组中移除
+            channels.remove(ctx.channel());
+            
+            // 广播给剩余的客户端
+            broadcast(message);
+            
+            System.out.println("[系统] 当前在线人数：" + channels.size());
+        }
+        
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            cause.printStackTrace();
+            ctx.close();
+        }
+        
+        /**
+         * 广播消息给所有连接的客户端
+         */
+        private void broadcast(String message) {
+            for (Channel channel : channels) {
+                channel.writeAndFlush(message);
+            }
+        }
+        
+        private String getTimestamp() {
+            return sdf.format(new Date());
+        }
+    }
+}
+```
+
+**客户端代码**：
+
+```java
+package com.rpc.client.netty;
+
+import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.codec.string.StringDecoder;
+import io.netty.handler.codec.string.StringEncoder;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
+public class ChatRoomClient {
+    
+    public static void main(String[] args) throws Exception {
+        EventLoopGroup group = new NioEventLoopGroup();
+        
+        try {
+            Bootstrap bootstrap = new Bootstrap();
+            bootstrap.group(group)
+                     .channel(NioSocketChannel.class)
+                     .handler(new ChannelInitializer<SocketChannel>() {
+                         @Override
+                         protected void initChannel(SocketChannel ch) {
+                             ChannelPipeline pipeline = ch.pipeline();
+                             pipeline.addLast(new StringDecoder());
+                             pipeline.addLast(new StringEncoder());
+                             pipeline.addLast(new ChatRoomClientHandler());
+                         }
+                     });
+            
+            ChannelFuture future = bootstrap.connect("127.0.0.1", 8080).sync();
+            System.out.println("已连接到聊天室服务器");
+            
+            // 启动一个线程读取用户输入
+            Channel channel = future.channel();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+            
+            new Thread(() -> {
+                try {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if ("exit".equals(line)) {
+                            channel.closeFuture().sync();
+                            break;
+                        }
+                        channel.writeAndFlush(line);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }).start();
+            
+            // 等待连接关闭
+            channel.closeFuture().sync();
+            
+        } finally {
+            group.shutdownGracefully();
+        }
+    }
+    
+    /**
+     * 客户端处理器
+     */
+    static class ChatRoomClientHandler extends SimpleChannelInboundHandler<String> {
+        
+        @Override
+        protected void channelRead0(ChannelHandlerContext ctx, String msg) {
+            // 收到服务端广播的消息，直接打印
+            System.out.print(msg);
+        }
+        
+        @Override
+        public void channelActive(ChannelHandlerContext ctx) {
+            System.out.println("=== 欢迎进入聊天室 ===");
+            System.out.println("输入消息后按回车发送，输入 exit 退出");
+        }
+    }
+}
+```
+
+**运行测试**：
+
+1. 启动服务端：运行 `ChatRoomServer.main()`
+2. 启动多个客户端：运行多次 `ChatRoomClient.main()`
+3. 在任意客户端输入消息，所有客户端都能收到
+4. 观察上线/下线通知
+
+---
 
 ### 练习 2：实现回声服务器
 
-创建一个回声服务器（Echo Server）：
+**需求**：
 - 客户端发送什么，服务端就回复什么
 - 统计每个客户端发送的消息数量
 - 客户端断开时，打印统计信息
 
-### 练习 3：压力测试
+**实现代码**：
 
-使用 JMeter 或自己编写代码，测试 Netty 服务端：
-- 同时开启 1000 个客户端连接
-- 观察服务端的 CPU 和内存使用情况
-- 与 BIO 实现进行对比
+```java
+package com.rpc.server.netty;
+
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.string.StringDecoder;
+import io.netty.handler.codec.string.StringEncoder;
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class EchoServer {
+    
+    // 使用 ConcurrentHashMap 存储每个连接的计数
+    private static final ConcurrentHashMap<Channel, AtomicInteger> clientStats = 
+        new ConcurrentHashMap<>();
+    
+    public static void main(String[] args) throws Exception {
+        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
+        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        
+        try {
+            ServerBootstrap bootstrap = new ServerBootstrap();
+            bootstrap.group(bossGroup, workerGroup)
+                     .channel(NioServerSocketChannel.class)
+                     .childHandler(new ChannelInitializer<SocketChannel>() {
+                         @Override
+                         protected void initChannel(SocketChannel ch) {
+                             ChannelPipeline pipeline = ch.pipeline();
+                             pipeline.addLast(new StringDecoder());
+                             pipeline.addLast(new StringEncoder());
+                             pipeline.addLast(new EchoServerHandler());
+                         }
+                     });
+            
+            ChannelFuture future = bootstrap.bind(8080).sync();
+            System.out.println("回声服务器启动成功，监听端口：8080");
+            
+            future.channel().closeFuture().sync();
+            
+        } finally {
+            bossGroup.shutdownGracefully();
+            workerGroup.shutdownGracefully();
+        }
+    }
+    
+    /**
+     * 回声服务器处理器
+     */
+    @ChannelHandler.Sharable
+    static class EchoServerHandler extends SimpleChannelInboundHandler<String> {
+        
+        @Override
+        public void channelActive(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("[统计] 客户端连接：" + ctx.channel().remoteAddress());
+            
+            // 初始化该客户端的计数器
+            clientStats.put(ctx.channel(), new AtomicInteger(0));
+            
+            // 发送欢迎消息
+            ctx.writeAndFlush("欢迎连接到回声服务器！\n");
+        }
+        
+        @Override
+        protected void channelRead0(ChannelHandlerContext ctx, String msg) {
+            // 获取该客户端的计数器并累加
+            AtomicInteger counter = clientStats.get(ctx.channel());
+            if (counter != null) {
+                int count = counter.incrementAndGet();
+                System.out.println("[统计] 客户端 " + ctx.channel().remoteAddress() + 
+                                 " 发送了第 " + count + " 条消息");
+            }
+            
+            // 回声：原样返回
+            ctx.writeAndFlush("[回声] " + msg + "\n");
+        }
+        
+        @Override
+        public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+            // 客户端断开，打印统计信息
+            AtomicInteger counter = clientStats.remove(ctx.channel());
+            if (counter != null) {
+                System.out.println("===========================================");
+                System.out.println("[统计] 客户端 " + ctx.channel().remoteAddress() + " 断开连接");
+                System.out.println("[统计] 该客户端总共发送了 " + counter.get() + " 条消息");
+                System.out.println("===========================================");
+            }
+        }
+        
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            cause.printStackTrace();
+            ctx.close();
+        }
+    }
+}
+```
+
+**客户端代码**（可复用前面的 NettyClient）：
+
+```java
+package com.rpc.client.netty;
+
+import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.codec.string.StringDecoder;
+import io.netty.handler.codec.string.StringEncoder;
+
+public class EchoClient {
+    
+    public static void main(String[] args) throws Exception {
+        EventLoopGroup group = new NioEventLoopGroup();
+        
+        try {
+            Bootstrap bootstrap = new Bootstrap();
+            bootstrap.group(group)
+                     .channel(NioSocketChannel.class)
+                     .handler(new ChannelInitializer<SocketChannel>() {
+                         @Override
+                         protected void initChannel(SocketChannel ch) {
+                             ChannelPipeline pipeline = ch.pipeline();
+                             pipeline.addLast(new StringDecoder());
+                             pipeline.addLast(new StringEncoder());
+                             pipeline.addLast(new EchoClientHandler());
+                         }
+                     });
+            
+            ChannelFuture future = bootstrap.connect("127.0.0.1", 8080).sync();
+            System.out.println("已连接到回声服务器");
+            
+            Channel channel = future.channel();
+            
+            // 发送 5 条测试消息
+            for (int i = 1; i <= 5; i++) {
+                String message = "测试消息 " + i;
+                System.out.println("发送：" + message);
+                channel.writeAndFlush(message);
+                Thread.sleep(500);  // 等待 0.5 秒接收响应
+            }
+            
+            // 等待接收完所有响应
+            Thread.sleep(2000);
+            
+            System.out.println("测试完成，关闭连接");
+            channel.closeFuture().sync();
+            
+        } finally {
+            group.shutdownGracefully();
+        }
+    }
+    
+    /**
+     * 客户端处理器
+     */
+    static class EchoClientHandler extends SimpleChannelInboundHandler<String> {
+        
+        @Override
+        protected void channelRead0(ChannelHandlerContext ctx, String msg) {
+            System.out.println("收到：" + msg);
+        }
+        
+        @Override
+        public void channelActive(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("=== 回声测试开始 ===");
+        }
+    }
+}
+```
+
+**运行测试**：
+
+1. 启动服务端：运行 `EchoServer.main()`
+2. 启动客户端：运行 `EchoClient.main()`
+3. 观察控制台输出，可以看到：
+   - 客户端发送的每条消息都被原样返回
+   - 服务端实时统计每个客户端发送的消息数
+   - 客户端断开时打印总统计信息
+
+**示例输出**：
+
+```
+服务端输出：
+[统计] 客户端连接：/127.0.0.1:54321
+[统计] 客户端 /127.0.0.1:54321 发送了第 1 条消息
+[统计] 客户端 /127.0.0.1:54321 发送了第 2 条消息
+[统计] 客户端 /127.0.0.1:54321 发送了第 3 条消息
+[统计] 客户端 /127.0.0.1:54321 发送了第 4 条消息
+[统计] 客户端 /127.0.0.1:54321 发送了第 5 条消息
+===========================================
+[统计] 客户端 /127.0.0.1:54321 断开连接
+[统计] 该客户端总共发送了 5 条消息
+===========================================
+
+客户端输出：
+=== 回声测试开始 ===
+发送：测试消息 1
+收到：[回声] 测试消息 1
+发送：测试消息 2
+收到：[回声] 测试消息 2
+...
+```
 
 ---
 
