@@ -35,7 +35,6 @@ public class RpcProtocolEncoder extends MessageToByteEncoder<RpcMessage> {
         out.writeInt(header.getBodyLength());            // 4 字节
         // 5. 写入消息体
         out.writeBytes(bodyBytes);
-        log.debug("编码完成：requestId={}, bodyLength={}, magicNumber={}",
-                header.getRequestId(), header.getBodyLength(), header.getMagicNumber());
+        log.debug("编码完成：requestId={}, bodyLength={}, magicNumber={}", header.getRequestId(), header.getBodyLength(), header.getMagicNumber());
     }
 }

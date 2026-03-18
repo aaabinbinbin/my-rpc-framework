@@ -413,9 +413,334 @@ Netty 提供了现成的解码器：`LengthFieldBasedFrameDecoder`
 
 ---
 
-## 六、实现编解码器
+## 六、Netty 编解码器详解
 
-### 6.1 RPC 协议编码器
+### 6.1 什么是编解码器？
+
+**编码器（Encoder）**：将 Java 对象转换为字节流的过程  
+**解码器（Decoder）**：将字节流转换为 Java 对象的过程
+
+```
+编码过程：Java 对象 → 序列化 → 字节流 → 网络传输
+解码过程：字节流 → 反序列化 → Java 对象 → 业务处理
+```
+
+### 6.2 Netty 提供的常用编解码器
+
+#### （1）内置编解码器
+
+**字符串编解码**：
+```java
+// 字符串编码器：String → byte[]
+pipeline.addLast(new StringEncoder());
+
+// 字符串解码器：byte[] → String
+pipeline.addLast(new StringDecoder());
+```
+
+**对象编解码**：
+```java
+// Java 对象序列化编码器
+pipeline.addLast(new ObjectEncoder());
+
+// Java 对象反序列化解码器
+pipeline.addLast(new ObjectDecoder());
+```
+
+**行编解码器**（基于换行符）：
+```java
+// 按行读取，最大 1024 字节
+pipeline.addLast(new LineBasedFrameDecoder(1024));
+pipeline.addLast(new StringDecoder());
+```
+
+#### （2）长度字段编解码器 ⭐
+
+**LengthFieldBasedFrameDecoder**：根据长度字段自动拆包/粘包
+
+```java
+/**
+ * 构造参数说明：
+ * @param maxFrameLength      最大帧长度（超过则丢弃）
+ * @param lengthFieldOffset   长度字段偏移量（从第几个字节开始）
+ * @param lengthFieldLength   长度字段占用字节数
+ * @param lengthAdjustment    长度调整值（通常是负数，表示长度字段之后的内容）
+ * @param initialBytesToStrip 跳过的字节数（通常用于跳过消息头）
+ */
+public RpcProtocolDecoder() {
+    super(
+        1024 * 1024,    // 最大 1MB
+        16,             // 长度字段在 header 中的偏移（第 17 字节开始）
+        4,              // 长度字段占用 4 字节
+        0,              // 不需要调整
+        0               // 不跳过任何字节
+    );
+}
+```
+
+**参数详解图**：
+```
+消息头（20 字节）
+┌────────────────────────────────────────┐
+│ Magic(4) │ Ver(1) │ ... │ Reserved(1) │
+├────────────────────────────────────────┤
+│ RequestID(8) │ BodyLength(4) ← 偏移 16 │
+└────────────────────────────────────────┘
+         ↓
+   lengthFieldOffset = 16
+   lengthFieldLength = 4
+```
+
+### 6.3 自定义编码器
+
+**继承 MessageToByteEncoder**：
+
+```java
+@Slf4j
+public class RpcProtocolEncoder extends MessageToByteEncoder<RpcMessage> {
+    
+    @Override
+    protected void encode(ChannelHandlerContext ctx, RpcMessage msg, 
+                         ByteBuf out) throws Exception {
+        
+        RpcHeader header = msg.getHeader();
+        Object body = msg.getBody();
+        
+        // 1. 获取序列化器
+        Serializer serializer = SerializerFactory.getSerializer(
+            header.getSerializerType()
+        );
+        
+        // 2. 序列化消息体
+        byte[] bodyBytes = serializer.serialize(body);
+        
+        // 3. 更新消息头
+        header.setBodyLength(bodyBytes.length);
+        
+        // 4. 写入消息头（20 字节）
+        out.writeInt(header.getMagicNumber());           // 4 字节
+        out.writeByte(header.getVersion());              // 1 字节
+        out.writeByte(header.getSerializerType());       // 1 字节
+        out.writeByte(header.getMessageType());          // 1 字节
+        out.writeByte(header.getReserved());             // 1 字节
+        out.writeLong(header.getRequestId());            // 8 字节
+        out.writeInt(header.getBodyLength());            // 4 字节
+        
+        // 5. 写入消息体
+        out.writeBytes(bodyBytes);
+        
+        log.debug("编码完成：requestId={}, bodyLength={}", 
+                 header.getRequestId(), header.getBodyLength());
+    }
+}
+```
+
+**执行流程**：
+```
+RpcMessage
+    ↓
+encode() 方法被调用
+    ↓
+写入消息头到 ByteBuf
+    ↓
+写入消息体到 ByteBuf
+    ↓
+自动发送到 ChannelPipeline
+```
+
+### 6.4 自定义解码器
+
+**继承 LengthFieldBasedFrameDecoder**：
+
+```java
+@Slf4j
+public class RpcProtocolDecoder extends LengthFieldBasedFrameDecoder {
+    
+    public RpcProtocolDecoder() {
+        super(
+            1024 * 1024,    // 最大 1MB
+            16,             // 长度字段在 header 中的偏移
+            4,              // 长度字段占用 4 字节
+            0,              // 不需要调整
+            0               // 不跳过任何字节
+        );
+    }
+    
+    @Override
+    protected Object decode(ChannelHandlerContext ctx, ByteBuf in) 
+            throws Exception {
+        
+        // 1. 调用父类方法，获取完整的帧
+        ByteBuf frame = (ByteBuf) super.decode(ctx, in);
+        if (frame == null) {
+            return null;  // 数据不完整，等待更多数据
+        }
+        
+        // 2. 读取消息头
+        RpcHeader header = new RpcHeader();
+        header.setMagicNumber(frame.readInt());          // 4 字节
+        header.setVersion(frame.readByte());             // 1 字节
+        header.setSerializerType(frame.readByte());      // 1 字节
+        header.setMessageType(frame.readByte());         // 1 字节
+        header.setReserved(frame.readByte());            // 1 字节
+        header.setRequestId(frame.readLong());           // 8 字节
+        header.setBodyLength(frame.readInt());           // 4 字节
+        
+        // 3. 校验魔数
+        if (header.getMagicNumber() != RpcHeader.MAGIC_NUMBER) {
+            log.error("魔数校验失败：{}", header.getMagicNumber());
+            frame.release();
+            throw new IllegalArgumentException("非法的 RPC 消息，魔数不匹配");
+        }
+        
+        // 4. 读取消息体
+        byte[] bodyBytes = new byte[header.getBodyLength()];
+        frame.readBytes(bodyBytes);
+        
+        // 5. 反序列化消息体
+        Serializer serializer = SerializerFactory.getSerializer(
+            header.getSerializerType()
+        );
+        
+        Object body;
+        if (header.getMessageType() == 1) {  // 请求
+n            body = serializer.deserialize(bodyBytes, Object.class);
+        } else {  // 响应
+            body = serializer.deserialize(bodyBytes, Object.class);
+        }
+        
+        frame.release();
+        
+        // 6. 构建 RpcMessage
+        RpcMessage message = new RpcMessage();
+        message.setHeader(header);
+        message.setBody(body);
+        
+        log.debug("解码完成：requestId={}, bodyLength={}", 
+                 header.getRequestId(), header.getBodyLength());
+        
+        return message;
+    }
+}
+```
+
+**执行流程**：
+```
+字节流进入
+    ↓
+LengthFieldBasedFrameDecoder 自动处理粘包/拆包
+    ↓
+decode() 方法被调用
+    ↓
+读取并校验消息头
+    ↓
+读取消息体并反序列化
+    ↓
+返回 RpcMessage 对象
+```
+
+### 6.5 编解码器在 Pipeline 中的位置
+
+**服务端 Pipeline**：
+```java
+ch.pipeline()
+  // 入站处理器（从外向内）
+  .addLast("idleStateHandler", new IdleStateHandler(30, 0, 0, TimeUnit.SECONDS))
+  .addLast("decoder", new RpcProtocolDecoder())      // ← 解码器
+  .addLast("handler", new RpcRequestHandler())       // ← 业务处理器
+  // 出站处理器（从内向外）
+  .addLast("encoder", new RpcProtocolEncoder());     // ← 编码器
+```
+
+**客户端 Pipeline**：
+```java
+ch.pipeline()
+  .addLast("decoder", new RpcProtocolDecoder())      // ← 解码器
+  .addLast("encoder", new RpcProtocolEncoder())      // ← 编码器
+  .addLast("handler", new RpcClientHandler());       // ← 业务处理器
+```
+
+**数据流向图**：
+```
+服务端接收数据：
+网络 → Decoder → Handler → 业务逻辑
+              ↑
+           只处理 RpcMessage
+
+服务端发送数据：
+业务逻辑 → Encoder → 网络
+            ↑
+         接收 RpcMessage
+```
+
+### 6.6 测试编解码器
+
+**使用 EmbeddedChannel 进行单元测试**：
+
+```java
+@Test
+public void testEncodeDecode() {
+    // 1. 创建测试数据
+    RpcRequest request = new RpcRequest();
+    request.setServiceName("com.rpc.HelloService");
+    request.setMethodName("sayHello");
+    request.setParameterTypes(new Class[]{String.class});
+    request.setParameters(new Object[]{"world"});
+    
+    // 2. 创建消息
+    RpcHeader header = RpcHeader.builder()
+        .requestId(123456L)
+        .serializerType((byte) 1)  // Kryo
+        .messageType((byte) 1)      // 请求
+        .build();
+    
+    RpcMessage message = new RpcMessage();
+    message.setHeader(header);
+    message.setBody(request);
+    
+    // 3. 创建编码通道（模拟出站）
+    EmbeddedChannel encoderChannel = new EmbeddedChannel(
+        new RpcProtocolEncoder()
+    );
+    
+    // 4. 编码并读取字节
+    assertTrue(encoderChannel.writeOutbound(message));
+    ByteBuf encoded = (ByteBuf) encoderChannel.readOutbound();
+    
+    // 5. 创建解码通道（模拟入站）
+    EmbeddedChannel decoderChannel = new EmbeddedChannel(
+        new RpcProtocolDecoder()
+    );
+    
+    // 6. 解码并验证
+    assertTrue(decoderChannel.writeInbound(encoded));
+    RpcMessage decoded = (RpcMessage) decoderChannel.readInbound();
+    
+    // 7. 断言验证
+    assertNotNull(decoded);
+    assertEquals(123456L, decoded.getHeader().getRequestId());
+    assertEquals(1, decoded.getHeader().getMessageType());
+    
+    RpcRequest decodedRequest = (RpcRequest) decoded.getBody();
+    assertEquals("com.rpc.HelloService", decodedRequest.getServiceName());
+    assertEquals("sayHello", decodedRequest.getMethodName());
+    
+    // 8. 关闭通道
+    encoderChannel.finish();
+    decoderChannel.finish();
+}
+```
+
+**EmbeddedChannel 说明**：
+- 嵌入式的 Channel，用于单元测试
+- 不需要真实的网络连接
+- 可以模拟入站和出站数据流
+
+---
+
+## 七、实现 RPC 编解码器
+
+### 7.1 RPC 协议编码器
 
 ```java
 package com.rpc.core.protocol.codec;
@@ -472,7 +797,7 @@ public class RpcProtocolEncoder extends MessageToByteEncoder<RpcMessage> {
 }
 ```
 
-### 6.2 RPC 协议解码器
+### 7.2 RPC 协议解码器
 
 ```java
 package com.rpc.core.protocol.codec;
@@ -571,9 +896,9 @@ public class RpcProtocolDecoder extends LengthFieldBasedFrameDecoder {
 
 ---
 
-## 七、测试编解码器
+## 八、测试编解码器
 
-### 7.1 单元测试
+### 8.1 单元测试
 
 ```java
 package com.rpc.core.protocol.codec;
@@ -646,7 +971,7 @@ public class RpcProtocolCodecTest {
 
 ---
 
-## 八、本课总结
+## 九、本课总结
 
 ### 核心知识点
 
@@ -669,8 +994,32 @@ public class RpcProtocolCodecTest {
    - 我们采用**长度字段**方式
 
 5. **Netty 编解码器**
-   - 编码器：`MessageToByteEncoder`
-   - 解码器：`LengthFieldBasedFrameDecoder`
+   - **编码器**：继承 `MessageToByteEncoder<I>`，重写 `encode()` 方法
+     - 将 Java 对象编码为字节流
+     - 通过 `ByteBuf` 写入数据
+     - 自动添加到 Pipeline 的出站方向
+   
+   - **解码器**：继承 `LengthFieldBasedFrameDecoder`
+     - 自动解决 TCP 粘包/拆包问题
+     - 重写 `decode()` 方法进行自定义解析
+     - 支持魔数校验、版本检查等
+     - 添加到 Pipeline 的入站方向
+   
+   - **工作原理**：
+     ```
+     入站数据流：字节流 → 解码器 → 业务 Handler
+     出站数据流：业务 Handler → 编码器 → 字节流
+     ```
+   
+   - **常用 API**：
+     - `ctx.writeAndFlush(msg)`：写出数据
+     - `frame.readXXX()`：从 ByteBuf 读取数据
+     - `out.writeXXX()`：向 ByteBuf 写入数据
+   
+   - **测试方法**：使用 `EmbeddedChannel` 进行单元测试
+     - 模拟入站/出站数据流
+     - 无需真实网络连接
+     - 验证编解码正确性
 
 ### 课后思考
 
@@ -681,7 +1030,599 @@ public class RpcProtocolCodecTest {
 
 ---
 
-## 九、动手练习
+## 十、动手练习参考答案
+
+### 练习 1：添加协议版本检查
+
+**题目**：修改解码器，当收到不支持的协议版本时，抛出异常并关闭连接。
+
+**答案**：
+```java
+@Override
+protected Object decode(ChannelHandlerContext ctx, ByteBuf in) 
+        throws Exception {
+    
+    // 1. 调用父类方法，获取完整的帧
+    ByteBuf frame = (ByteBuf) super.decode(ctx, in);
+    if (frame == null) {
+        return null;
+    }
+    
+    // 2. 读取消息头
+    RpcHeader header = new RpcHeader();
+    header.setMagicNumber(frame.readInt());          // 4 字节
+    header.setVersion(frame.readByte());             // 1 字节
+    header.setSerializerType(frame.readByte());      // 1 字节
+    header.setMessageType(frame.readByte());         // 1 字节
+    header.setReserved(frame.readByte());            // 1 字节
+    header.setRequestId(frame.readLong());           // 8 字节
+    header.setBodyLength(frame.readInt());           // 4 字节
+    
+    // 3. 校验魔数
+    if (header.getMagicNumber() != RpcHeader.MAGIC_NUMBER) {
+        log.error("魔数校验失败：{}", header.getMagicNumber());
+        frame.release();
+        throw new IllegalArgumentException("非法的 RPC 消息，魔数不匹配");
+    }
+    
+    // ⭐ 新增：校验协议版本
+    if (header.getVersion() != RpcHeader.VERSION) {
+        log.error("不支持的协议版本：{}，当前支持版本：{}", 
+                 header.getVersion(), RpcHeader.VERSION);
+        frame.release();
+        // 抛出异常，Netty 会关闭连接
+        throw new UnsupportedOperationException(
+            "不支持的协议版本：" + header.getVersion() + 
+            "，当前支持版本：" + RpcHeader.VERSION
+        );
+    }
+    
+    // 4. 读取消息体（后续代码保持不变）
+    byte[] bodyBytes = new byte[header.getBodyLength()];
+    frame.readBytes(bodyBytes);
+    
+    // ... 后续代码省略 ...
+}
+```
+
+**说明**：
+- 在解码器的 `decode()` 方法中添加版本检查逻辑
+- 如果版本号不匹配，释放 ByteBuf 资源并抛出异常
+- Netty 框架捕获异常后会关闭连接，防止处理错误数据
+
+---
+
+### 练习 2：实现心跳消息
+
+**题目**：设计心跳消息的格式
+- 心跳请求：只包含请求 ID
+- 心跳响应：包含请求 ID 和时间戳
+
+**答案**：
+
+#### （1）定义心跳消息结构
+
+```java
+package com.rpc.core.protocol;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * 心跳消息（用于保持连接活跃）
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class RpcHeartbeat {
+    
+    /** 请求 ID（用于匹配请求和响应） */
+    private long requestId;
+    
+    /** 时间戳（仅响应时需要） */
+    private long timestamp;
+    
+    /**
+     * 创建心跳请求
+     */
+    public static RpcHeartbeat createRequest(long requestId) {
+        return RpcHeartbeat.builder()
+                .requestId(requestId)
+                .build();
+    }
+    
+    /**
+     * 创建心跳响应
+     */
+    public static RpcHeartbeat createResponse(long requestId) {
+        return RpcHeartbeat.builder()
+                .requestId(requestId)
+                .timestamp(System.currentTimeMillis())
+                .build();
+    }
+}
+```
+
+#### （2）扩展消息类型枚举
+
+```java
+// 已有的 MessageType 接口中添加新类型
+public interface MessageType {
+    byte REQUEST = 1;
+    byte RESPONSE = 2;
+    
+    // ⭐ 新增心跳消息类型
+    byte HEARTBEAT_REQUEST = 3;
+    byte HEARTBEAT_RESPONSE = 4;
+}
+```
+
+#### （3）修改编码器支持心跳消息
+
+```java
+@Override
+protected void encode(ChannelHandlerContext ctx, RpcMessage msg, 
+                     ByteBuf out) throws Exception {
+    
+    RpcHeader header = msg.getHeader();
+    Object body = msg.getBody();
+    
+    // ⭐ 根据消息类型选择不同的序列化方式
+    byte[] bodyBytes;
+    if (header.getMessageType() == MessageType.HEARTBEAT_REQUEST ||
+        header.getMessageType() == MessageType.HEARTBEAT_RESPONSE) {
+        // 心跳消息使用简单的 JSON 序列化
+        bodyBytes = JsonUtils.toJsonBytes(body);
+    } else {
+        // 普通 RPC 消息使用配置的序列化器
+        Serializer serializer = SerializerFactory.getSerializer(
+            header.getSerializerType()
+        );
+        bodyBytes = serializer.serialize(body);
+    }
+    
+    header.setBodyLength(bodyBytes.length);
+    
+    // 写入消息头（20 字节）
+    out.writeInt(header.getMagicNumber());
+    out.writeByte(header.getVersion());
+    out.writeByte(header.getSerializerType());
+    out.writeByte(header.getMessageType());
+    out.writeByte(header.getReserved());
+    out.writeLong(header.getRequestId());
+    out.writeInt(header.getBodyLength());
+    
+    // 写入消息体
+    out.writeBytes(bodyBytes);
+}
+```
+
+#### （4）修改解码器支持心跳消息
+
+```java
+@Override
+protected Object decode(ChannelHandlerContext ctx, ByteBuf in) 
+        throws Exception {
+    
+    // ... 前面的代码不变 ...
+    
+    // ⭐ 根据消息类型选择反序列化方式
+    Object body;
+    if (header.getMessageType() == MessageType.HEARTBEAT_REQUEST ||
+        header.getMessageType() == MessageType.HEARTBEAT_RESPONSE) {
+        // 心跳消息反序列化为 RpcHeartbeat
+        body = JsonUtils.fromJson(bodyBytes, RpcHeartbeat.class);
+    } else if (header.getMessageType() == MessageType.REQUEST) {
+        body = serializer.deserialize(bodyBytes, RpcRequest.class);
+    } else {  // RESPONSE
+        body = serializer.deserialize(bodyBytes, RpcResponse.class);
+    }
+    
+    // ... 后续代码不变 ...
+}
+```
+
+#### （5）心跳消息格式设计
+
+```
+心跳请求消息：
+┌──────────────────────────────────────┐
+│ Header (20 字节)                      │
+│ Magic(4) + Version(1) + ...          │
+│ MessageType=3 (1 字节) ← 心跳请求     │
+│ RequestID(8) + BodyLength(4)         │
+├──────────────────────────────────────┤
+│ Body (变长，JSON 格式)                │
+│ {"requestId": 123456}                │
+└──────────────────────────────────────┘
+
+心跳响应消息：
+┌──────────────────────────────────────┐
+│ Header (20 字节)                      │
+│ Magic(4) + Version(1) + ...          │
+│ MessageType=4 (1 字节) ← 心跳响应     │
+│ RequestID(8) + BodyLength(4)         │
+├──────────────────────────────────────┤
+│ Body (变长，JSON 格式)                │
+│ {"requestId": 123456,                │
+│  "timestamp": 1703123456789}         │
+└──────────────────────────────────────┘
+```
+
+**说明**：
+- 心跳消息结构简单，使用 JSON 序列化即可（不需要复杂的 Kryo）
+- 通过 `MessageType` 区分心跳消息和普通 RPC 消息
+- 心跳响应包含时间戳，可用于计算网络延迟
+
+---
+
+### 练习 3：添加校验和
+
+**题目**：在消息头中添加校验和字段（CRC32），接收方校验数据完整性。
+
+**答案**：
+
+#### （1）修改 RpcHeader 添加校验和字段
+
+```java
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class RpcHeader {
+    
+    /** 魔数，4 字节 */
+    private int magicNumber = 0x12345678;
+    
+    /** 版本号，1 字节 */
+    private byte version = 1;
+    
+    /** 序列化器类型，1 字节 */
+    private byte serializerType;
+    
+    /** 消息类型，1 字节 */
+    private byte messageType;
+    
+    /** 保留字段，1 字节 */
+    private byte reserved;
+    
+    /** 请求 ID，8 字节 */
+    private long requestId;
+    
+    /** 消息体长度，4 字节 */
+    private int bodyLength;
+    
+    // ⭐ 新增：校验和，4 字节（放在消息头末尾）
+    private long checksum;
+    
+    /** 消息头总长度：24 字节（原 20 字节 + 新增 4 字节） */
+    public static final int HEADER_LENGTH = 24;
+    
+    /** 魔数常量 */
+    public static final int MAGIC_NUMBER = 0x12345678;
+    
+    /** 协议版本 */
+    public static final byte VERSION = 1;
+}
+```
+
+#### （2）修改协议格式图
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          Magic Number                         |
++---------------------------------------------------------------+
+|   Version     |   Serializer  |    MessageType   |  Reserved  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Request ID                            |
+|                       (8 bytes)                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Body Length                           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          Checksum                             |
+|                       (4 bytes)                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+**新的消息头长度**：4 + 4 + 4 + 8 + 4 + 4 = **28 字节**
+
+#### （3）修改编码器计算校验和
+
+```java
+@Override
+protected void encode(ChannelHandlerContext ctx, RpcMessage msg, 
+                     ByteBuf out) throws Exception {
+    
+    RpcHeader header = msg.getHeader();
+    Object body = msg.getBody();
+    
+    // 1. 获取序列化器并序列化消息体
+    Serializer serializer = SerializerFactory.getSerializer(
+        header.getSerializerType()
+    );
+    byte[] bodyBytes = serializer.serialize(body);
+    
+    // 2. 更新消息头
+    header.setBodyLength(bodyBytes.length);
+    
+    // ⭐ 3. 计算 CRC32 校验和
+    CRC32 crc32 = new CRC32();
+    crc32.update(bodyBytes);  // 对消息体计算校验和
+    header.setChecksum(crc32.getValue());
+    
+    // 4. 写入消息头（28 字节）
+    out.writeInt(header.getMagicNumber());           // 4 字节
+    out.writeByte(header.getVersion());              // 1 字节
+    out.writeByte(header.getSerializerType());       // 1 字节
+    out.writeByte(header.getMessageType());          // 1 字节
+    out.writeByte(header.getReserved());             // 1 字节
+    out.writeLong(header.getRequestId());            // 8 字节
+    out.writeInt(header.getBodyLength());            // 4 字节
+    out.writeInt((int) header.getChecksum());        // 4 字节 ⭐
+    
+    // 5. 写入消息体
+    out.writeBytes(bodyBytes);
+    
+    log.debug("编码完成：requestId={}, bodyLength={}, checksum={}", 
+             header.getRequestId(), header.getBodyLength(), header.getChecksum());
+}
+```
+
+#### （4）修改解码器校验校验和
+
+```java
+@Override
+protected Object decode(ChannelHandlerContext ctx, ByteBuf in) 
+        throws Exception {
+    
+    // 1. 调用父类方法，获取完整的帧
+    ByteBuf frame = (ByteBuf) super.decode(ctx, in);
+    if (frame == null) {
+        return null;
+    }
+    
+    // 2. 读取消息头
+    RpcHeader header = new RpcHeader();
+    header.setMagicNumber(frame.readInt());          // 4 字节
+    header.setVersion(frame.readByte());             // 1 字节
+    header.setSerializerType(frame.readByte());      // 1 字节
+    header.setMessageType(frame.readByte());         // 1 字节
+    header.setReserved(frame.readByte());            // 1 字节
+    header.setRequestId(frame.readLong());           // 8 字节
+    header.setBodyLength(frame.readInt());           // 4 字节
+    header.setChecksum(frame.readUnsignedInt());     // 4 字节 ⭐
+    
+    // 3. 校验魔数
+    if (header.getMagicNumber() != RpcHeader.MAGIC_NUMBER) {
+        log.error("魔数校验失败：{}", header.getMagicNumber());
+        frame.release();
+        throw new IllegalArgumentException("非法的 RPC 消息，魔数不匹配");
+    }
+    
+    // ⭐ 4. 校验数据完整性（CRC32）
+    byte[] bodyBytes = new byte[header.getBodyLength()];
+    frame.readBytes(bodyBytes);
+    
+    CRC32 crc32 = new CRC32();
+    crc32.update(bodyBytes);
+    long calculatedChecksum = crc32.getValue();
+    
+    if (calculatedChecksum != header.getChecksum()) {
+        log.error("CRC32 校验失败！期望：{}, 实际：{}", 
+                 header.getChecksum(), calculatedChecksum);
+        frame.release();
+        throw new IOException("数据完整性校验失败，可能已损坏");
+    }
+    
+    // 5. 反序列化消息体
+    Serializer serializer = SerializerFactory.getSerializer(
+        header.getSerializerType()
+    );
+    Object body = serializer.deserialize(bodyBytes, Object.class);
+    
+    frame.release();
+    
+    // 6. 构建 RpcMessage
+    RpcMessage message = new RpcMessage();
+    message.setHeader(header);
+    message.setBody(body);
+    
+    log.debug("解码完成：requestId={}, bodyLength={}, checksum 校验通过", 
+             header.getRequestId(), header.getBodyLength());
+    
+    return message;
+}
+```
+
+#### （5）LengthFieldBasedFrameDecoder 参数调整
+
+```java
+public RpcProtocolDecoder() {
+    super(
+        1024 * 1024,    // 最大 1MB
+        20,             // ⭐ 长度字段偏移量改为 20（原 16）
+        4,              // 长度字段长度
+        0,              // 长度调整值
+        0               // 跳过的字节数
+    );
+}
+```
+
+**说明**：
+- 由于消息头从 20 字节扩展到 28 字节，长度字段的偏移量需要调整
+- `lengthFieldOffset = 20`（从第 21 字节开始是长度字段）
+
+#### （6）CRC32 校验原理
+
+```
+发送方：
+1. 对 bodyBytes 计算 CRC32 值
+2. 将 CRC32 值写入 header.checksum
+3. 发送：header + bodyBytes
+
+接收方：
+1. 接收数据，读取 header.checksum
+2. 对收到的 bodyBytes 重新计算 CRC32
+3. 比较：计算的 CRC32 vs header 中的 CRC32
+4. 如果不相等 → 数据在传输过程中损坏 → 抛出异常
+```
+
+**优点**：
+- ✅ 检测数据传输过程中的损坏
+- ✅ 检测网络传输错误
+- ✅ 提高可靠性
+
+**缺点**：
+- ❌ 增加 4 字节开销
+- ❌ 增加 CPU 计算成本
+- ❌ 对于高吞吐场景可能影响性能
+
+---
+
+## 十一、课后思考参考答案
+
+### 1. 为什么要设计魔数？魔数有什么作用？
+
+**答案要点**：
+
+**魔数（Magic Number）**是一个特殊的数值标识，用于快速识别数据包的有效性。
+
+**作用**：
+1. **快速识别协议**：通过魔数可以立即判断这个数据包是否是我们预期的协议格式
+2. **过滤非法数据**：如果魔数不匹配，说明收到了错误的数据包，可以快速丢弃
+3. **安全防护**：防止恶意攻击或错误连接发送的垃圾数据
+4. **调试便利**：在日志中看到魔数就能知道是哪个系统的数据
+
+**生活中的例子**：
+```
+就像信封上的邮政编码：
+- 看到 100000 开头的邮编，就知道这是北京的信件
+- 如果收到一个没有邮编或邮编错误的信封，可能是垃圾邮件
+```
+
+**常见魔数示例**：
+- Java class 文件：`0xCAFEBABE`
+- PNG 图片：`0x89504E47`
+- gzip 文件：`0x1F8B0800`
+
+---
+
+### 2. 消息头为什么要用固定长度？
+
+**答案要点**：
+
+**原因**：
+1. **解析简单高效**：固定长度意味着可以直接定位到每个字段的位置
+   ```java
+   // 固定长度：直接读取
+   offset = 0;
+   magic = buffer.readInt(offset);      // 0-3
+   version = buffer.readByte(offset+4); // 4
+   
+   // 变长：需要先解析前面的字段才能知道下一个字段位置
+   // 复杂且容易出错
+   ```
+
+2. **性能好**：不需要额外的长度信息，减少一次内存读取
+
+3. **实现简单**：编解码器逻辑清晰，不易出错
+
+4. **内存对齐**：CPU 访问固定长度的数据结构效率更高
+
+**缺点**：
+- 不够灵活，扩展性稍差
+- 但可以通过预留字段（reserved）来解决
+
+---
+
+### 3. 除了长度字段，还有哪些解决粘包的方法？
+
+**答案**：
+
+#### 方法 1：固定长度
+- 每条消息固定长度（如都是 1024 字节）
+- 不足部分用 0 填充
+- **适用场景**：消息长度固定的场景
+
+#### 方法 2：特殊分隔符
+- 使用特殊字符（如 `\r\n`）分隔消息
+- Netty 提供：`LineBasedFrameDecoder`
+- **适用场景**：文本协议（如 HTTP、FTP）
+
+#### 方法 3：自定义协议头
+- 在协议头中包含长度字段（我们采用的方式）
+- Netty 提供：`LengthFieldBasedFrameDecoder`
+- **适用场景**：二进制协议，最常用
+
+#### 方法 4：基于内容的边界
+- 根据消息内容的特征来判断边界
+- 例如：XML/JSON 的 `{}` 标签匹配
+- **适用场景**：结构化数据
+
+#### 方法 5：应用层协议
+- 使用现成的应用层协议（如 HTTP/2、gRPC）
+- 这些协议已经定义好了消息边界
+- **适用场景**：通用性要求高的场景
+
+---
+
+### 4. 如何在不中断服务的情况下升级协议版本？
+
+**答案要点**：
+
+#### 策略 1：多版本兼容
+
+```java
+// 解码器支持多个版本
+if (header.getVersion() == 1) {
+    // 按 V1 版本解析
+    parseV1(header, bodyBytes);
+} else if (header.getVersion() == 2) {
+    // 按 V2 版本解析
+    parseV2(header, bodyBytes);
+}
+```
+
+#### 策略 2：灰度升级
+
+1. **第一阶段**：新旧版本并存
+   - 服务端同时支持 V1 和 V2 协议
+   - 根据请求中的 version 字段决定使用哪个版本
+
+2. **第二阶段**：逐步切换
+   - 先升级少量客户端到 V2
+   - 监控运行稳定后，继续扩大范围
+
+3. **第三阶段**：淘汰旧版本
+   - 所有客户端都升级到 V2 后
+   - 移除 V1 版本的支持代码
+
+#### 策略 3：协商机制
+
+```
+客户端连接时：
+1. 客户端发送支持的版本列表：[1, 2]
+2. 服务端返回选择的版本：2
+3. 后续通信使用版本 2
+```
+
+#### 策略 4：向后兼容设计
+
+- 新增字段放在消息末尾
+- 使用可选字段（optional）
+- 不删除已有字段，只标记 deprecated
+
+**最佳实践**：
+- ✅ 协议设计时就考虑版本兼容性
+- ✅ 使用灰度发布，避免一次性全部升级
+- ✅ 保留回滚能力，出现问题可快速恢复
+
+---
 
 ### 练习 1：添加协议版本检查
 
@@ -707,7 +1648,7 @@ long checksum = crc32.getValue();
 
 ---
 
-## 十、下一步
+## 十一、下一步
 
 下一节课我们将实现**Netty 服务端**，启动 RPC 服务器。
 

@@ -33,22 +33,29 @@ public class RpcProtocolDecoder extends LengthFieldBasedFrameDecoder {
         if (frame == null) {
             return null;
         }
-        // 2. 读取并校验魔数（先校验魔数，避免非法数据）
-        int magicNumber = frame.readInt();
-        if (magicNumber != RpcHeader.MAGIC_NUMBER) {
-            log.error("魔数校验失败：{}", Integer.toHexString(magicNumber));
-            frame.release();
-            throw new IllegalArgumentException("非法的 RPC 消息，魔数不匹配");
-        }
-        // 3. 读取消息头
+        // 2. 读取消息头
         RpcHeader header = new RpcHeader();
-        header.setMagicNumber(magicNumber);          // 4 字节
+        header.setMagicNumber(frame.readInt());          // 4 字节
         header.setVersion(frame.readByte());             // 1 字节
         header.setSerializerType(frame.readByte());      // 1 字节
         header.setMessageType(frame.readByte());         // 1 字节
         header.setReserved(frame.readByte());            // 1 字节
         header.setRequestId(frame.readLong());           // 8 字节
         header.setBodyLength(frame.readInt());           // 4 字节
+        // 3. 读取并校验魔数、版本号
+        int magicNumber = header.getMagicNumber();
+        if (magicNumber != RpcHeader.MAGIC_NUMBER) {
+            log.error("魔数校验失败：{}", Integer.toHexString(magicNumber));
+            frame.release();
+            throw new IllegalArgumentException("非法的 RPC 消息，魔数不匹配");
+        }
+        byte version = header.getVersion();
+        if (version != RpcHeader.VERSION) {
+            log.error("不支持的协议版本：{}，当前支持版本：{}", header.getVersion(), RpcHeader.VERSION);
+            frame.release();
+            // 抛出异常，Netty 会关闭连接
+            throw new UnsupportedOperationException("不支持的协议版本：" + header.getVersion() + "，当前支持版本：" + RpcHeader.VERSION);
+        }
         // 4. 读取消息体
         byte[] bodyBytes = new byte[header.getBodyLength()];
         frame.readBytes(bodyBytes, 0, header.getBodyLength());
