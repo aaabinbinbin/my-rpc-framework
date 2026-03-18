@@ -25,6 +25,7 @@ public class KryoSerializer implements Serializer {
         // 配置 Kryo
         kryo.setReferences(true);      // 支持对象循环引用
         kryo.setRegistrationRequired(false);  // 不需要注册类（方便但性能略低）
+        
         return kryo;
     });
 
@@ -37,7 +38,8 @@ public class KryoSerializer implements Serializer {
                 // 写入 null 标记
                 kryo.writeClassAndObject(output, null);
             } else {
-                kryo.writeObject(output, obj);
+                // 使用 writeClassAndObject 以保存类型信息（支持多态）
+                kryo.writeClassAndObject(output, obj);
             }
             return output.toBytes();
         } catch (Exception e) {
@@ -55,6 +57,7 @@ public class KryoSerializer implements Serializer {
         try {
             Input input = new Input(new ByteArrayInputStream(bytes));
             Kryo kryo = kryoLocal.get();
+            // 始终使用 readClassAndObject，与 serialize 方法保持一致
             return (T) kryo.readClassAndObject(input);
         } catch (Exception e) {
             log.error("Kryo 反序列化失败", e);
