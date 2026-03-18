@@ -6,8 +6,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Rpc协议消息头
- * 固定20字节
+ * Rpc 协议消息头
+ * 固定 24 字节（包含 CRC32 校验和）
  */
 @Data
 @Builder
@@ -35,8 +35,11 @@ public class RpcHeader {
     /** 消息体长度，4 字节 */
     private int bodyLength;
 
-    /** 消息头总长度：20 字节 */
-    public static final int HEADER_LENGTH = 20;
+    /** 校验和，4 字节（放在消息头末尾）*/
+    private long checksum;
+
+    /** 消息头总长度：24 字节 */
+    public static final int HEADER_LENGTH = 24;
 
     /** 魔数常量 */
     public static final int MAGIC_NUMBER = 0x12345678;
