@@ -3,7 +3,7 @@ package com.rpc.protocol.codec;
 import com.rpc.protocol.RpcHeader;
 import com.rpc.protocol.RpcHeartbeat;
 import com.rpc.protocol.RpcMessage;
-import com.rpc.protocol.RpcMessageTyp;
+import com.rpc.protocol.RpcMessageType;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.embedded.EmbeddedChannel;
 import lombok.extern.slf4j.Slf4j;
@@ -36,7 +36,7 @@ public class RpcHeartbeatCodecTest {
         RpcHeader header = RpcHeader.builder()
                 .magicNumber(0x12345678)
                 .version((byte) 1)
-                .messageType(RpcMessageTyp.HEARTBEAT_REQUEST)  // 心跳请求类型
+                .messageType(RpcMessageType.HEARTBEAT_REQUEST)  // 心跳请求类型
                 .serializerType((byte) 1)  // Kryo 序列化
                 .requestId(requestId)
                 .build();
@@ -73,7 +73,7 @@ public class RpcHeartbeatCodecTest {
         // 验证消息头
         assertEquals("魔数应该匹配", 0x12345678, decoded.getHeader().getMagicNumber());
         assertEquals("版本号应该匹配", 1, decoded.getHeader().getVersion());
-        assertEquals("消息类型应该是心跳请求", RpcMessageTyp.HEARTBEAT_REQUEST, 
+        assertEquals("消息类型应该是心跳请求", RpcMessageType.HEARTBEAT_REQUEST,
                     decoded.getHeader().getMessageType());
         assertEquals("请求 ID 应该匹配", requestId, decoded.getHeader().getRequestId());
 
@@ -112,7 +112,7 @@ public class RpcHeartbeatCodecTest {
         RpcHeader header = RpcHeader.builder()
                 .magicNumber(0x12345678)
                 .version((byte) 1)
-                .messageType(RpcMessageTyp.HEARTBEAT_RESPONSE)  // 心跳响应类型
+                .messageType(RpcMessageType.HEARTBEAT_RESPONSE)  // 心跳响应类型
                 .serializerType((byte) 1)  // Kryo 序列化
                 .requestId(requestId)
                 .build();
@@ -149,7 +149,7 @@ public class RpcHeartbeatCodecTest {
         // 验证消息头
         assertEquals("魔数应该匹配", 0x12345678, decoded.getHeader().getMagicNumber());
         assertEquals("版本号应该匹配", 1, decoded.getHeader().getVersion());
-        assertEquals("消息类型应该是心跳响应", RpcMessageTyp.HEARTBEAT_RESPONSE, 
+        assertEquals("消息类型应该是心跳响应", RpcMessageType.HEARTBEAT_RESPONSE,
                     decoded.getHeader().getMessageType());
         assertEquals("请求 ID 应该匹配", requestId, decoded.getHeader().getRequestId());
 
@@ -188,7 +188,7 @@ public class RpcHeartbeatCodecTest {
         RpcHeader requestHeader = RpcHeader.builder()
                 .magicNumber(0x12345678)
                 .version((byte) 1)
-                .messageType(RpcMessageTyp.HEARTBEAT_REQUEST)
+                .messageType(RpcMessageType.HEARTBEAT_REQUEST)
                 .serializerType((byte) 1)
                 .requestId(requestId)
                 .build();
@@ -210,7 +210,7 @@ public class RpcHeartbeatCodecTest {
         RpcMessage receivedRequest = (RpcMessage) channel.readInbound();
         
         assertNotNull("服务端应该收到心跳请求", receivedRequest);
-        assertEquals("消息类型应该是心跳请求", RpcMessageTyp.HEARTBEAT_REQUEST, 
+        assertEquals("消息类型应该是心跳请求", RpcMessageType.HEARTBEAT_REQUEST,
                     receivedRequest.getHeader().getMessageType());
         
         RpcHeartbeat receivedHeartbeat = (RpcHeartbeat) receivedRequest.getBody();
@@ -224,7 +224,7 @@ public class RpcHeartbeatCodecTest {
         RpcHeader responseHeader = RpcHeader.builder()
                 .magicNumber(0x12345678)
                 .version((byte) 1)
-                .messageType(RpcMessageTyp.HEARTBEAT_RESPONSE)
+                .messageType(RpcMessageType.HEARTBEAT_RESPONSE)
                 .serializerType((byte) 1)
                 .requestId(requestId)
                 .build();
@@ -244,7 +244,7 @@ public class RpcHeartbeatCodecTest {
         RpcMessage receivedResponse = (RpcMessage) channel.readInbound();
         
         assertNotNull("客户端应该收到心跳响应", receivedResponse);
-        assertEquals("消息类型应该是心跳响应", RpcMessageTyp.HEARTBEAT_RESPONSE, 
+        assertEquals("消息类型应该是心跳响应", RpcMessageType.HEARTBEAT_RESPONSE,
                     receivedResponse.getHeader().getMessageType());
         
         RpcHeartbeat receivedResponseHeartbeat = (RpcHeartbeat) receivedResponse.getBody();
@@ -283,7 +283,7 @@ public class RpcHeartbeatCodecTest {
             RpcHeader header = RpcHeader.builder()
                     .magicNumber(0x12345678)
                     .version((byte) 1)
-                    .messageType(RpcMessageTyp.HEARTBEAT_REQUEST)
+                    .messageType(RpcMessageType.HEARTBEAT_REQUEST)
                     .serializerType((byte) 1)
                     .requestId(requestId)
                     .build();

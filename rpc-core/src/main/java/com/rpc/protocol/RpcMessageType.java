@@ -3,7 +3,7 @@ package com.rpc.protocol;
 /**
  * 消息类型枚举
  */
-public interface RpcMessageTyp {
+public interface RpcMessageType {
     /** 请求消息 */
     byte REQUEST = 1;
 

@@ -24,16 +24,40 @@ public class RpcProxyFactory {
      * @return 代理对象
      */
     @SuppressWarnings("unchecked")
+    public static <T> T createProxy(Class<T> serviceClass) {
+        if (serviceClass.isInterface()) {
+            return (T) Proxy.newProxyInstance(
+                    serviceClass.getClassLoader(),
+                    new Class<?>[]{serviceClass}, // serviceClass可能是接口，所以不使用serviceClass.getInterfaces()
+                    new RpcInvocationHandler(serviceClass)
+            );
+        } else {
+            Enhancer enhancer = new Enhancer();
+            enhancer.setSuperclass(serviceClass);
+            enhancer.setCallback(new RpcMethodInterceptor());
+            T proxy = (T) enhancer.create();
+            return proxy;
+        }
+
+    }
+
+    /**
+     * 使用SDK创建代理对象
+     * @param serviceClass 服务接口类
+     * @return 代理对象
+     */
+    @SuppressWarnings("unchecked")
     public static <T> T createProxyBySDK(Class<T> serviceClass) {
         return (T) Proxy.newProxyInstance(
                 serviceClass.getClassLoader(),
                 new Class<?>[]{serviceClass}, // serviceClass可能是接口，所以不使用serviceClass.getInterfaces()
                 new RpcInvocationHandler(serviceClass)
         );
+
     }
 
     /**
-     * 创建代理对象
+     * 使用cgLib创建代理对象
      * @param serviceClass 服务接口类
      * @return 代理对象
      */
