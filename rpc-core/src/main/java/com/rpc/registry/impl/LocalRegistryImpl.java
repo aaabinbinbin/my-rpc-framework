@@ -2,6 +2,7 @@ package com.rpc.registry.impl;
 
 import com.rpc.registry.LocalRegistry;
 import com.rpc.transport.netty.server.statistics.ServiceStatistics;
+import com.rpc.transport.netty.server.statistics.StatisticsManager;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
@@ -20,13 +21,6 @@ public class LocalRegistryImpl implements LocalRegistry {
      */
     private static final Map<String, Object> SERVICE_MAP = new ConcurrentHashMap<>();
 
-    /**
-     * 存储统计信息映射
-     * key: 服务名称
-     * value: 服务统计信息
-     */
-    private static final Map<String, ServiceStatistics> STATISTICS_MAP = new ConcurrentHashMap<>();
-
     @Override
     public void register(String serviceName, Object serviceInstance) {
         if (serviceName == null || serviceName.isEmpty()) {
@@ -38,7 +32,8 @@ public class LocalRegistryImpl implements LocalRegistry {
         SERVICE_MAP.put(serviceName, serviceInstance);
         // 创建并存储统计信息
         ServiceStatistics statistics = new ServiceStatistics(serviceName);
-        STATISTICS_MAP.put(serviceName, statistics);
+        // 同步注册统计信息
+        StatisticsManager.getInstance().register(serviceName);
         log.info("服务注册成功：{} -> {}", serviceName, serviceInstance.getClass());
     }
 
@@ -55,26 +50,13 @@ public class LocalRegistryImpl implements LocalRegistry {
     @Override
     public void unregister(String serviceName) {
         SERVICE_MAP.remove(serviceName);
-        STATISTICS_MAP.remove(serviceName);
+        // 同步移除统计信息
+        StatisticsManager.getInstance().remove(serviceName);
         log.info("服务注销成功：{}", serviceName);
     }
 
     @Override
     public boolean contains(String serviceName) {
         return SERVICE_MAP.containsKey(serviceName);
-    }
-
-    @Override
-    public ServiceStatistics getServiceStatistics(String serviceName) {
-        return STATISTICS_MAP.get(serviceName);
-    }
-
-    @Override
-    public void printAllStatistics() {
-        log.info("\n========== 所有服务统计信息 ==========");
-        for (ServiceStatistics stats : STATISTICS_MAP.values()) {
-            stats.printStatistics();
-        }
-        log.info("=======================================\n");
     }
 }

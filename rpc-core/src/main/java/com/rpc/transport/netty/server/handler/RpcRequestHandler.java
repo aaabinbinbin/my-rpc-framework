@@ -3,6 +3,7 @@ package com.rpc.transport.netty.server.handler;
 import com.rpc.protocol.*;
 import com.rpc.registry.LocalRegistry;
 import com.rpc.transport.netty.server.statistics.ServiceStatistics;
+import com.rpc.transport.netty.server.statistics.StatisticsManager;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -18,9 +19,11 @@ import java.lang.reflect.Method;
 public class RpcRequestHandler extends ChannelInboundHandlerAdapter {
     // 服务注册表
     private final LocalRegistry localRegistry;
+    private final StatisticsManager statisticsManager;
 
     public RpcRequestHandler(LocalRegistry localRegistry) {
         this.localRegistry = localRegistry;
+        this.statisticsManager = StatisticsManager.getInstance();
     }
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
@@ -54,11 +57,12 @@ public class RpcRequestHandler extends ChannelInboundHandlerAdapter {
                 rpcRequest.getServiceName(), rpcRequest.getMethodName());
 
         RpcResponse rpcResponse;
-        ServiceStatistics statistics = null;
         long startTime = System.currentTimeMillis();
         try {
             // 1. 获取服务统计信息
-            statistics = localRegistry.getServiceStatistics(rpcRequest.getServiceName());
+            ServiceStatistics statistics = statisticsManager.getStatistics(
+                    rpcRequest.getServiceName()
+            );
             if (statistics != null) {
                 statistics.recordStart();
             }
@@ -81,7 +85,10 @@ public class RpcRequestHandler extends ChannelInboundHandlerAdapter {
             log.error("RPC 调用失败", e);
             // 构建失败响应
             rpcResponse = RpcResponse.fail(500, e.getMessage(), rpcRequest.getRequestId());
-            // 7. 记录失败统计
+            // 记录失败统计
+            ServiceStatistics statistics = statisticsManager.getStatistics(
+                    rpcRequest.getServiceName()
+            );
             if (statistics != null) {
                 statistics.recordFailed(startTime);
             }

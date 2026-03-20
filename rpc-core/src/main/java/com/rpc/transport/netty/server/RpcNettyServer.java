@@ -6,6 +6,7 @@ import com.rpc.codec.RpcProtocolDecoder;
 import com.rpc.codec.RpcProtocolEncoder;
 import com.rpc.registry.LocalRegistry;
 import com.rpc.registry.impl.LocalRegistryImpl;
+import com.rpc.transport.netty.server.statistics.StatisticsManager;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
@@ -47,10 +48,6 @@ public class RpcNettyServer {
      * 启动服务器
      */
     public void start() throws Exception {
-        // 启动统计定时任务（每分钟打印一次）
-        statsExecutor.scheduleAtFixedRate(() -> {
-            localRegistry.printAllStatistics();
-        }, 1, 10, TimeUnit.SECONDS);
         // 1. 创建事件循环组
         bossGroup = new NioEventLoopGroup(config.getBossThreads());
         workerGroup = new NioEventLoopGroup(config.getWorkerThreads());
@@ -114,9 +111,8 @@ public class RpcNettyServer {
                     .awaitUninterruptibly(config.getShutdownTimeout(), TimeUnit.SECONDS);
         }
 
-        if (!statsExecutor.isShutdown()) {
-            statsExecutor.shutdown();
-        }
+        // 关闭统计管理器
+        StatisticsManager.getInstance().shutdown();
 
         log.info("RPC 服务器已关闭");
     }
