@@ -579,7 +579,7 @@ public class RpcProxyTest {
 
 ```java
 // 1. 获取 Class 对象
-Class<?> clazz = Class.forName("com.rpc.HelloServiceImpl");
+Class<?> clazz = Class.forName("com.rpc.server.HelloServiceImpl");
 // 或者
 Class<?> clazz = HelloServiceImpl.class;
 // 或者

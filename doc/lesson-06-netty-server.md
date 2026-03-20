@@ -1177,7 +1177,7 @@ package com.rpc.example.provider;
 
 import com.rpc.core.registry.LocalRegistry;
 import com.rpc.server.config.RpcServerConfig;
-import com.rpc.server.netty.RpcNettyServer;
+import com.rpc.server.RpcNettyServer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
