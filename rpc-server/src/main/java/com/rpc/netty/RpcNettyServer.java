@@ -33,10 +33,6 @@ public class RpcNettyServer {
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
 
-    public RpcNettyServer() {
-        this(new RpcServerConfig());
-    }
-
     public RpcNettyServer(RpcServerConfig config) {
         this.config = config;
         this.localRegistry = new LocalRegistryImpl();
@@ -68,9 +64,9 @@ public class RpcNettyServer {
                                             new IdleStateHandler(30, 0,
                                                     0, TimeUnit.SECONDS)) // 空闲检测处理器 0 - 不检测
                                     .addLast("decoder", new RpcProtocolDecoder()) // 解码
-                                    .addLast("handler", new RpcRequestHandler(localRegistry)) // 处理请求
-                                    // 出站处理器
-                                    .addLast("encoder", new RpcProtocolEncoder()); // 编码
+                                    .addLast("encoder", new RpcProtocolEncoder()) // 编码  出站处理器，出站时才会使用
+                                    // 编码器必须在处理器前面
+                                    .addLast("handler", new RpcRequestHandler(localRegistry)); // 处理请求
                         }
                     });
 

@@ -1,10 +1,12 @@
 package com.rpc.netty.handler;
 
 import com.rpc.protocol.*;
-import com.rpc.proxy.RpcProxyFactory;
+import com.rpc.protocol.codec.RpcProtocolEncoder;
 import com.rpc.registry.LocalRegistry;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.SimpleChannelInboundHandler;
 import lombok.extern.slf4j.Slf4j;
 
@@ -15,7 +17,7 @@ import java.lang.reflect.Method;
  * 处理客户端的远程调用请求
  */
 @Slf4j
-public class RpcRequestHandler extends SimpleChannelInboundHandler<RpcMessage> {
+public class RpcRequestHandler extends ChannelInboundHandlerAdapter {
     // 服务注册表
     private final LocalRegistry localRegistry;
 
@@ -23,7 +25,14 @@ public class RpcRequestHandler extends SimpleChannelInboundHandler<RpcMessage> {
         this.localRegistry = localRegistry;
     }
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, RpcMessage message) throws Exception {
+    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        if (!(msg instanceof RpcMessage)) {
+            log.warn("收到非 RPC 消息类型：{}", msg.getClass().getName());
+            ctx.fireChannelRead(msg);
+            return;
+        }
+
+        RpcMessage message = (RpcMessage) msg;
         RpcHeader header = message.getHeader();
 
         // 1. 根据消息类型处理
@@ -98,8 +107,10 @@ public class RpcRequestHandler extends SimpleChannelInboundHandler<RpcMessage> {
         RpcMessage responseMessage = new RpcMessage();
         responseMessage.setHeader(responseHeader);
         responseMessage.setBody(body);
+        log.info("准备发送响应：requestId={}, 消息类型={}",
+                responseHeader.getRequestId(), responseHeader.getMessageType());
 
-        // 3. 发送消息
+        // 3. 写入 Pipeline - 让 RpcProtocolEncoder 自动编码
         ctx.writeAndFlush(responseMessage)
                 .addListener((ChannelFutureListener) future -> {
                     if (!future.isSuccess()) {

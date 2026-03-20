@@ -13,7 +13,7 @@ public class RpcProxyTest {
     public void testJDKProxy() {
         long start = System.currentTimeMillis();
         // 1. 创建代理对象
-        HelloService service = RpcProxyFactory.createProxyBySDK(HelloService.class);
+        HelloService service = RpcProxyFactory.createProxyBySDK(HelloService.class, "127.0.0.1", 8080);
 
         // 2. 调用方法
         String result1 = service.sayHello("world");
@@ -34,7 +34,7 @@ public class RpcProxyTest {
     public void testCGLibProxy() {
         long start = System.currentTimeMillis();
         // 1. 创建代理对象
-        HelloService service = RpcProxyFactory.createProxyByCGLib(HelloService.class);
+        HelloService service = RpcProxyFactory.createProxyByCGLib(HelloService.class, "127.0.0.1", 8080);
         // 2. 调用方法
         String result1 = service.sayHello("world");
         log.info("调用结果 1: {}", result1);
