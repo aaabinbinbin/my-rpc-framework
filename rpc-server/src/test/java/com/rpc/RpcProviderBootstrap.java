@@ -25,7 +25,7 @@ public class RpcProviderBootstrap {
             // 3. 注册服务
             LocalRegistry registry = server.getLocalRegistry();
             registry.register("com.rpc.HelloService",
-                    HelloServiceImpl.class);
+                    new HelloServiceImpl());
 
             // 4. 启动服务器
             server.start();

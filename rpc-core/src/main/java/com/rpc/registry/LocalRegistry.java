@@ -8,16 +8,16 @@ public interface LocalRegistry {
     /**
      * 注册服务
      * @param serviceName 服务名称（接口全限定名）
-     * @param serviceImpl 服务实现类
+     * @param serviceInstance 服务实现实例（单例）
      */
-    void register(String serviceName, Class<?> serviceImpl);
+    void register(String serviceName, Object serviceInstance);
 
     /**
      * 获取服务实现类
      * @param serviceName 服务名称
-     * @return 服务实现类
+     * @return 服务实例
      */
-    Class<?> getService(String serviceName);
+    Object getService(String serviceName);
 
     /**
      * 注销服务

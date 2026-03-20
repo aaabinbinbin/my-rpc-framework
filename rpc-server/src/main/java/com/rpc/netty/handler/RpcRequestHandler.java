@@ -57,16 +57,15 @@ public class RpcRequestHandler extends ChannelInboundHandlerAdapter {
 
         RpcResponse rpcResponse;
         try {
-            // 1. 获取服务实现类
-            Class<?> serviceClass = localRegistry.getService(rpcRequest.getServiceName());
-            // 2. 创建服务实例（实际应该用单例或 Spring 管理）
-            Object serviceBean = serviceClass.getDeclaredConstructor().newInstance();
-            // 3. 获取方法
-            Method method = serviceClass.getMethod(rpcRequest.getMethodName(),
+            // 1. 获取服务实现实例（单例）
+            Object serviceBean = localRegistry.getService(rpcRequest.getServiceName());
+            log.info("服务实例hash: {}", serviceBean.hashCode());
+            // 2. 获取方法
+            Method method = serviceBean.getClass().getMethod(rpcRequest.getMethodName(),
                     rpcRequest.getParameterTypes());
-            // 4. 反射调用方法
+            // 3. 反射调用方法
             Object result = method.invoke(serviceBean, rpcRequest.getParameters());
-            // 5. 构建成功响应
+            // 4. 构建成功响应
             rpcResponse = RpcResponse.success(result, rpcRequest.getRequestId());
             log.debug("RPC 调用成功：{}", result);
 

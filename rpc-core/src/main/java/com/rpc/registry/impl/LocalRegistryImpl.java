@@ -17,27 +17,27 @@ public class LocalRegistryImpl implements LocalRegistry {
      * key: 服务名称（接口全限定名）
      * value: 服务实现类
      */
-    private static final Map<String, Class<?>> SERVICE_MAP = new ConcurrentHashMap<>();
+    private static final Map<String, Object> SERVICE_MAP = new ConcurrentHashMap<>();
     @Override
-    public void register(String serviceName, Class<?> serviceImpl) {
+    public void register(String serviceName, Object serviceInstance) {
         if (serviceName == null || serviceName.isEmpty()) {
             throw new IllegalArgumentException("服务名称不能为空");
         }
-        if (serviceImpl == null) {
-            throw new IllegalArgumentException("服务实现类不能为空");
+        if (serviceInstance == null) {
+            throw new IllegalArgumentException("服务实例不能为空");
         }
-        SERVICE_MAP.put(serviceName, serviceImpl);
-        log.info("服务注册成功：{} -> {}", serviceName, serviceImpl.getName());
+        SERVICE_MAP.put(serviceName, serviceInstance);
+        log.info("服务注册成功：{} -> {}", serviceName, serviceInstance.getClass());
     }
 
     @Override
-    public Class<?> getService(String serviceName) {
-        Class<?> serviceClass = SERVICE_MAP.get(serviceName);
-        if (serviceClass == null) {
+    public Object getService(String serviceName) {
+        Object serviceInstance = SERVICE_MAP.get(serviceName);
+        if (serviceInstance == null) {
             log.error("服务未找到：{}", serviceName);
             throw new RuntimeException("服务未找到：" + serviceName);
         }
-        return serviceClass;
+        return serviceInstance;
     }
 
     @Override
