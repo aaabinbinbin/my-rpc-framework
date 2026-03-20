@@ -14,6 +14,7 @@ import java.lang.reflect.Method;
 @Slf4j
 public class RpcInvocationHandler implements InvocationHandler {
     private final Class<?> serviceClass;
+    // 保留 host 和 port 用于兼容不注册中心的情况
     private final String host;
     private final int port;
     private static RpcNettyClient client;
@@ -44,6 +45,7 @@ public class RpcInvocationHandler implements InvocationHandler {
         if (client == null) {
             throw new IllegalStateException("RPC 客户端未初始化");
         }
+        // 如果客户端配置了服务注册中心，host 和 port 将被忽略
         RpcResponse response = client.sendRequest(request, host, port);
         // 4. 返回结果
         if (response.getCode() == 200) {

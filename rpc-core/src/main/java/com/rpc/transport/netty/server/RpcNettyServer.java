@@ -1,5 +1,6 @@
 package com.rpc.transport.netty.server;
 
+import com.rpc.registry.ServiceRegistry;
 import com.rpc.transport.netty.server.config.RpcServerConfig;
 import com.rpc.transport.netty.server.handler.RpcRequestHandler;
 import com.rpc.codec.RpcProtocolDecoder;
@@ -30,18 +31,17 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 public class RpcNettyServer {
+    // 服务器配置
     private final RpcServerConfig config;
+    // 本地服务注册表
     private final LocalRegistry localRegistry;
-
+    // Netty 线程组
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
 
-    private final ScheduledExecutorService statsExecutor = Executors.newSingleThreadScheduledExecutor();
-
-
-    public RpcNettyServer(RpcServerConfig config) {
+    public RpcNettyServer(RpcServerConfig config, ServiceRegistry registry) {
         this.config = config;
-        this.localRegistry = new LocalRegistryImpl();
+        this.localRegistry = new LocalRegistryImpl(registry, config.getHost(), config.getPort());
     }
 
     /**

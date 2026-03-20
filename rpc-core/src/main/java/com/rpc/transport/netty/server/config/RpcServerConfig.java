@@ -7,6 +7,9 @@ import lombok.Data;
  */
 @Data
 public class RpcServerConfig {
+    /** 服务器ip地址 */
+    private String host;
+
     /** 服务器端口 */
     private int port = 8080;
 
@@ -25,6 +28,11 @@ public class RpcServerConfig {
     // Builder 模式
     public static RpcServerConfig custom() {
         return new RpcServerConfig();
+    }
+
+    public RpcServerConfig host(String host) {
+        this.host = host;
+        return this;
     }
 
     public RpcServerConfig port(int port) {

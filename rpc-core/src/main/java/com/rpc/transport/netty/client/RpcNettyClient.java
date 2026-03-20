@@ -8,6 +8,7 @@ import com.rpc.protocol.*;
 import com.rpc.codec.RpcProtocolDecoder;
 import com.rpc.codec.RpcProtocolEncoder;
 import com.rpc.serialize.factory.SerializerFactory;
+import com.rpc.registry.ServiceRegistry;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
@@ -20,6 +21,8 @@ import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.timeout.IdleStateHandler;
 import lombok.extern.slf4j.Slf4j;
 
+import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -31,11 +34,25 @@ public class RpcNettyClient {
     private EventLoopGroup eventLoopGroup;
     private ConnectionPool connectionPool;
     private RequestManager requestManager;
+    // 服务注册中心
+    private final ServiceRegistry serviceRegistry;
 
     private int connectTimeout = 5000;  // 连接超时 5 秒
     private int readTimeout = 10000;     // 读取超时 10 秒
 
+    /**
+     * 无参构造（默认不使用注册中心）
+     */
     public RpcNettyClient() {
+        this(null);
+    }
+
+    /**
+     * 带服务注册中心的构造方法
+     * @param serviceRegistry 服务注册中心
+     */
+    public RpcNettyClient(ServiceRegistry serviceRegistry) {
+        this.serviceRegistry = serviceRegistry;
         this.eventLoopGroup = new NioEventLoopGroup();
         this.requestManager = new RequestManager();
 
@@ -67,7 +84,40 @@ public class RpcNettyClient {
      * @return RPC 响应
      */
     public RpcResponse sendRequest(RpcRequest rpcRequest) {
-        return sendRequest(rpcRequest, "127.0.0.1", 8080);
+        // 如果配置了服务注册中心，则从注册中心获取地址
+        if (serviceRegistry != null) {
+            return sendRequestWithServiceDiscovery(rpcRequest);
+        } else {
+            // 否则使用默认地址
+            return sendRequest(rpcRequest, "127.0.0.1", 8080);
+        }
+    }
+
+    /**
+     * 基于服务发现发送请求
+     */
+    private RpcResponse sendRequestWithServiceDiscovery(RpcRequest rpcRequest) {
+        try {
+            // 1. 从注册中心获取服务提供者列表
+            List<InetSocketAddress> addresses = serviceRegistry.lookup(rpcRequest.getServiceName());
+            
+            if (addresses == null || addresses.isEmpty()) {
+                throw new RuntimeException("未找到服务：" + rpcRequest.getServiceName());
+            }
+            
+            // 2. 简单选择第一个地址（后续可扩展负载均衡）
+            InetSocketAddress address = addresses.get(0);
+            log.info("服务发现选择地址：{}", address);
+            
+            // 3. 发送到选中的地址
+            return sendRequest(rpcRequest, 
+                    address.getAddress().getHostAddress(), 
+                    address.getPort());
+            
+        } catch (Exception e) {
+            log.error("服务发现调用失败", e);
+            throw new RuntimeException("服务发现调用失败", e);
+        }
     }
 
     /**
@@ -191,6 +241,11 @@ public class RpcNettyClient {
         if (eventLoopGroup != null) {
             eventLoopGroup.shutdownGracefully()
                     .awaitUninterruptibly(5, TimeUnit.SECONDS);
+        }
+
+        // 关闭服务注册中心
+        if (serviceRegistry != null) {
+            serviceRegistry.close();
         }
 
         log.info("客户端已关闭");
