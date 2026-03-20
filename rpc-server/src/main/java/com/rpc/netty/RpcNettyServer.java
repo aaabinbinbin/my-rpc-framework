@@ -4,8 +4,8 @@ import com.rpc.config.RpcServerConfig;
 import com.rpc.netty.handler.RpcRequestHandler;
 import com.rpc.protocol.codec.RpcProtocolDecoder;
 import com.rpc.protocol.codec.RpcProtocolEncoder;
-import com.rpc.registry.LocalRegistry;
-import com.rpc.registry.impl.LocalRegistryImpl;
+import com.rpc.netty.registry.LocalRegistry;
+import com.rpc.netty.registry.impl.LocalRegistryImpl;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
@@ -20,6 +20,8 @@ import io.netty.handler.timeout.IdleStateHandler;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -33,6 +35,9 @@ public class RpcNettyServer {
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
 
+    private final ScheduledExecutorService statsExecutor = Executors.newSingleThreadScheduledExecutor();
+
+
     public RpcNettyServer(RpcServerConfig config) {
         this.config = config;
         this.localRegistry = new LocalRegistryImpl();
@@ -42,6 +47,10 @@ public class RpcNettyServer {
      * 启动服务器
      */
     public void start() throws Exception {
+        // 启动统计定时任务（每分钟打印一次）
+        statsExecutor.scheduleAtFixedRate(() -> {
+            localRegistry.printAllStatistics();
+        }, 1, 10, TimeUnit.SECONDS);
         // 1. 创建事件循环组
         bossGroup = new NioEventLoopGroup(config.getBossThreads());
         workerGroup = new NioEventLoopGroup(config.getWorkerThreads());
@@ -103,6 +112,10 @@ public class RpcNettyServer {
         if (workerGroup != null) {
             workerGroup.shutdownGracefully()
                     .awaitUninterruptibly(config.getShutdownTimeout(), TimeUnit.SECONDS);
+        }
+
+        if (!statsExecutor.isShutdown()) {
+            statsExecutor.shutdown();
         }
 
         log.info("RPC 服务器已关闭");

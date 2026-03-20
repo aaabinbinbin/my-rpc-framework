@@ -1,13 +1,11 @@
 package com.rpc.netty.handler;
 
 import com.rpc.protocol.*;
-import com.rpc.protocol.codec.RpcProtocolEncoder;
-import com.rpc.registry.LocalRegistry;
-import io.netty.buffer.ByteBuf;
+import com.rpc.netty.registry.LocalRegistry;
+import com.rpc.statistics.ServiceStatistics;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.SimpleChannelInboundHandler;
 import lombok.extern.slf4j.Slf4j;
 
 import java.lang.reflect.Method;
@@ -56,7 +54,14 @@ public class RpcRequestHandler extends ChannelInboundHandlerAdapter {
                 rpcRequest.getServiceName(), rpcRequest.getMethodName());
 
         RpcResponse rpcResponse;
+        ServiceStatistics statistics = null;
+        long startTime = System.currentTimeMillis();
         try {
+            // 1. 获取服务统计信息
+            statistics = localRegistry.getServiceStatistics(rpcRequest.getServiceName());
+            if (statistics != null) {
+                statistics.recordStart();
+            }
             // 1. 获取服务实现实例（单例）
             Object serviceBean = localRegistry.getService(rpcRequest.getServiceName());
             log.info("服务实例hash: {}", serviceBean.hashCode());
@@ -68,11 +73,18 @@ public class RpcRequestHandler extends ChannelInboundHandlerAdapter {
             // 4. 构建成功响应
             rpcResponse = RpcResponse.success(result, rpcRequest.getRequestId());
             log.debug("RPC 调用成功：{}", result);
-
+            // 6. 记录成功统计
+            if (statistics != null) {
+                statistics.recordSuccess(startTime);
+            }
         } catch (Exception e) {
             log.error("RPC 调用失败", e);
             // 构建失败响应
             rpcResponse = RpcResponse.fail(500, e.getMessage(), rpcRequest.getRequestId());
+            // 7. 记录失败统计
+            if (statistics != null) {
+                statistics.recordFailed(startTime);
+            }
         }
         // 发送响应
         sendMessage(ctx, rpcResponse, requestHeader);

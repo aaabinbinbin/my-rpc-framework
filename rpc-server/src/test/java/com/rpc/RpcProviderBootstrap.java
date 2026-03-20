@@ -2,7 +2,7 @@ package com.rpc;
 
 import com.rpc.config.RpcServerConfig;
 import com.rpc.netty.RpcNettyServer;
-import com.rpc.registry.LocalRegistry;
+import com.rpc.netty.registry.LocalRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**

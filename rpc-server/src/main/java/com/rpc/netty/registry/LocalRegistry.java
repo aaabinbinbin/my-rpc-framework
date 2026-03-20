@@ -1,4 +1,6 @@
-package com.rpc.registry;
+package com.rpc.netty.registry;
+
+import com.rpc.statistics.ServiceStatistics;
 
 /**
  * 本地服务注册表
@@ -29,4 +31,16 @@ public interface LocalRegistry {
      * 检查服务是否已注册
      */
     boolean contains(String serviceName);
+
+    /**
+     * 获取服务统计信息
+     * @param serviceName 服务名称
+     * @return 服务统计信息
+     */
+    ServiceStatistics getServiceStatistics(String serviceName);
+
+    /**
+     * 打印所有服务的统计信息
+     */
+    void printAllStatistics();
 }
