@@ -1,5 +1,7 @@
 package com.rpc.transport.netty.client;
 
+import com.rpc.config.RpcClientConfig;
+import com.rpc.loadbalance.LoadBalancer;
 import com.rpc.transport.netty.client.connection.RpcConnection;
 import com.rpc.transport.netty.client.manager.RequestManager;
 import com.rpc.transport.netty.client.handler.RpcClientHandler;
@@ -31,30 +33,29 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 public class RpcNettyClient {
+    // Netty 事件循环组
     private EventLoopGroup eventLoopGroup;
+    // 连接池
     private ConnectionPool connectionPool;
+    // 请求管理器
     private RequestManager requestManager;
     // 服务注册中心
     private final ServiceRegistry serviceRegistry;
+    // 负载均衡器
+    private final LoadBalancer loadBalancer;
 
     private int connectTimeout = 5000;  // 连接超时 5 秒
     private int readTimeout = 10000;     // 读取超时 10 秒
 
     /**
-     * 无参构造（默认不使用注册中心）
-     */
-    public RpcNettyClient() {
-        this(null);
-    }
-
-    /**
      * 带服务注册中心的构造方法
      * @param serviceRegistry 服务注册中心
      */
-    public RpcNettyClient(ServiceRegistry serviceRegistry) {
+    public RpcNettyClient(RpcClientConfig config, ServiceRegistry serviceRegistry) {
         this.serviceRegistry = serviceRegistry;
         this.eventLoopGroup = new NioEventLoopGroup();
         this.requestManager = new RequestManager();
+        this.loadBalancer = config.getLoadBalancer();
 
         // 创建 Bootstrap
         Bootstrap bootstrap = new Bootstrap();
@@ -100,20 +101,20 @@ public class RpcNettyClient {
         try {
             // 1. 从注册中心获取服务提供者列表
             List<InetSocketAddress> addresses = serviceRegistry.lookup(rpcRequest.getServiceName());
-            
+
             if (addresses == null || addresses.isEmpty()) {
                 throw new RuntimeException("未找到服务：" + rpcRequest.getServiceName());
             }
-            
+
             // 2. 简单选择第一个地址（后续可扩展负载均衡）
-            InetSocketAddress address = addresses.get(0);
+            InetSocketAddress address = loadBalancer.select(rpcRequest.getServiceName(), addresses);
             log.info("服务发现选择地址：{}", address);
-            
+
             // 3. 发送到选中的地址
-            return sendRequest(rpcRequest, 
-                    address.getAddress().getHostAddress(), 
+            return sendRequest(rpcRequest,
+                    address.getAddress().getHostAddress(),
                     address.getPort());
-            
+
         } catch (Exception e) {
             log.error("服务发现调用失败", e);
             throw new RuntimeException("服务发现调用失败", e);

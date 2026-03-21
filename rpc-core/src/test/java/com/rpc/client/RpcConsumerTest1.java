@@ -1,6 +1,7 @@
 package com.rpc.client;
 
 import com.rpc.HelloService;
+import com.rpc.config.RpcClientConfig;
 import com.rpc.proxy.RpcProxyFactory;
 import com.rpc.registry.ServiceRegistry;
 import com.rpc.registry.impl.ZooKeeperRegistryImpl;
@@ -18,9 +19,9 @@ public class RpcConsumerTest1 {
         try {
             // 1. 创建 ZooKeeper 注册中心连接
             ServiceRegistry registry = new ZooKeeperRegistryImpl("8.134.204.101:2181", 5000);
-            
+            RpcClientConfig config = RpcClientConfig.custom();
             // 2. 创建并初始化客户端（传入注册中心）
-            client = new RpcNettyClient(registry);
+            client = new RpcNettyClient(config, registry);
             RpcProxyFactory.initClient(client);
 
             // 3. 创建代理（不再需要指定 host 和 port，会从 ZooKeeper 获取）
