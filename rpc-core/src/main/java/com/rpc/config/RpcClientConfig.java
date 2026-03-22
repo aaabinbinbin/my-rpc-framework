@@ -2,7 +2,6 @@ package com.rpc.config;
 
 import com.rpc.loadbalance.LoadBalancer;
 import com.rpc.loadbalance.factory.LoadBalancerFactory;
-import com.rpc.loadbalance.impl.RandomLoadBalancer;
 import lombok.Builder;
 import lombok.Data;
 
@@ -32,7 +31,7 @@ public class RpcClientConfig {
 
     // 负载均衡器
     @Builder.Default
-    private LoadBalancer loadBalancer = LoadBalancerFactory.getLoadBalancer(null);
+    private LoadBalancer loadBalancer = LoadBalancerFactory.getDefaultLoadBalancer();
 
     // 重试次数
     @Builder.Default

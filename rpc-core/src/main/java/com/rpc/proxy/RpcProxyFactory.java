@@ -20,22 +20,15 @@ public class RpcProxyFactory {
 
     /**
      * 创建代理对象
-     */
-    public static <T> T createProxy(Class<T> serviceClass) {
-        return createProxy(serviceClass, "127.0.0.1", 8080);
-    }
-
-    /**
-     * 创建代理对象
      * @param serviceClass 服务接口类
      * @return 代理对象
      */
     @SuppressWarnings("unchecked")
-    public static <T> T createProxy(Class<T> serviceClass, String host, int port) {
+    public static <T> T createProxy(Class<T> serviceClass) {
         if (serviceClass.isInterface()) {
-            return createProxyBySDK(serviceClass, host, port);
+            return createProxyBySDK(serviceClass);
         } else {
-            return createProxyByCGLib(serviceClass, host, port);
+            return createProxyByCGLib(serviceClass);
         }
 
     }
@@ -46,11 +39,11 @@ public class RpcProxyFactory {
      * @return 代理对象
      */
     @SuppressWarnings("unchecked")
-    public static <T> T createProxyBySDK(Class<T> serviceClass, String host, int port) {
+    public static <T> T createProxyBySDK(Class<T> serviceClass) {
         return (T) Proxy.newProxyInstance(
                 serviceClass.getClassLoader(),
                 new Class<?>[]{serviceClass}, // serviceClass 可能是接口，所以不使用 serviceClass.getInterfaces()
-                new RpcInvocationHandler(serviceClass, host, port, client)
+                new RpcInvocationHandler(serviceClass, client)
         );
 
     }
@@ -61,10 +54,10 @@ public class RpcProxyFactory {
      * @return 代理对象
      */
     @SuppressWarnings("unchecked")
-    public static <T> T createProxyByCGLib(Class<T> serviceClass, String host, int port) {
+    public static <T> T createProxyByCGLib(Class<T> serviceClass) {
         Enhancer enhancer = new Enhancer();
         enhancer.setSuperclass(serviceClass);
-        enhancer.setCallback(new RpcMethodInterceptor(serviceClass, host, port, client));
+        enhancer.setCallback(new RpcMethodInterceptor(serviceClass, client));
         T proxy = (T) enhancer.create();
         return proxy;
     }

@@ -1,18 +1,18 @@
 package com.rpc.transport.netty.client;
 
+import com.rpc.codec.RpcProtocolDecoder;
+import com.rpc.codec.RpcProtocolEncoder;
 import com.rpc.config.RpcClientConfig;
 import com.rpc.loadbalance.LoadBalancer;
+import com.rpc.protocol.*;
+import com.rpc.registry.ServiceRegistry;
+import com.rpc.serialize.factory.SerializerFactory;
 import com.rpc.transport.netty.client.connection.RpcConnection;
+import com.rpc.transport.netty.client.connection.pool.ConnectionPool;
+import com.rpc.transport.netty.client.handler.RpcClientHandler;
 import com.rpc.transport.netty.client.handler.heart.HeartbeatHandler;
 import com.rpc.transport.netty.client.handler.heart.ReconnectHandler;
 import com.rpc.transport.netty.client.manager.RequestManager;
-import com.rpc.transport.netty.client.handler.RpcClientHandler;
-import com.rpc.transport.netty.client.connection.pool.ConnectionPool;
-import com.rpc.protocol.*;
-import com.rpc.codec.RpcProtocolDecoder;
-import com.rpc.codec.RpcProtocolEncoder;
-import com.rpc.serialize.factory.SerializerFactory;
-import com.rpc.registry.ServiceRegistry;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
@@ -85,51 +85,9 @@ public class RpcNettyClient {
     }
 
     /**
-     * 发送 RPC 请求（同步方式）
-     * @param rpcRequest RPC 请求对象
-     * @return RPC 响应
-     */
-    public RpcResponse sendRequest(RpcRequest rpcRequest) {
-        // 如果配置了服务注册中心，则从注册中心获取地址
-        if (serviceRegistry != null) {
-            return sendRequestWithServiceDiscovery(rpcRequest);
-        } else {
-            // 否则使用默认地址
-            return sendRequest(rpcRequest, "127.0.0.1", 8080);
-        }
-    }
-
-    /**
-     * 基于服务发现发送请求
-     */
-    private RpcResponse sendRequestWithServiceDiscovery(RpcRequest rpcRequest) {
-        try {
-            // 1. 从注册中心获取服务提供者列表
-            List<InetSocketAddress> addresses = serviceRegistry.lookup(rpcRequest.getServiceName());
-
-            if (addresses == null || addresses.isEmpty()) {
-                throw new RuntimeException("未找到服务：" + rpcRequest.getServiceName());
-            }
-
-            // 2. 简单选择第一个地址（后续可扩展负载均衡）
-            InetSocketAddress address = loadBalancer.select(rpcRequest.getServiceName(), addresses);
-            log.info("服务发现选择地址：{}", address);
-
-            // 3. 发送到选中的地址
-            return sendRequest(rpcRequest,
-                    address.getAddress().getHostAddress(),
-                    address.getPort());
-
-        } catch (Exception e) {
-            log.error("服务发现调用失败", e);
-            throw new RuntimeException("服务发现调用失败", e);
-        }
-    }
-
-    /**
      * 发送 RPC 请求到指定服务器
      */
-    public RpcResponse sendRequest(RpcRequest rpcRequest, String host, int port) {
+    public RpcResponse sendRequest(RpcRequest rpcRequest) {
         try {
             // 1. 生成请求 ID
             long requestId = generateRequestId();
@@ -138,10 +96,18 @@ public class RpcNettyClient {
             // 2. 创建 Future 用于接收响应
             CompletableFuture<RpcResponse> future = requestManager.addRequest(requestId);
 
-            // 3. 获取连接
+            // 3. 从注册中心获取服务提供者列表
+            List<InetSocketAddress> addresses = serviceRegistry.lookup(rpcRequest.getServiceName());
+            // 4. 通过负载均衡获取地址
+            InetSocketAddress address = loadBalancer.select(rpcRequest.getServiceName(), addresses);
+            String host = address.getAddress().getHostAddress();
+            int port = address.getPort();
+            log.info("服务发现选择地址：{}", address);
+
+            // 5. 获取连接
             RpcConnection connection = connectionPool.getConnection(host, port);
 
-            // 4. 构建请求消息
+            // 6. 构建请求消息
             RpcHeader header = RpcHeader.builder()
                     .magicNumber(RpcHeader.MAGIC_NUMBER)
                     .version(RpcHeader.VERSION)
@@ -155,15 +121,15 @@ public class RpcNettyClient {
             message.setHeader(header);
             message.setBody(rpcRequest);
 
-            // 5. 发送消息
+            // 7. 发送消息
             connection.getChannel().writeAndFlush(message).sync();
             log.debug("请求已发送：{}.{}", rpcRequest.getServiceName(),
                     rpcRequest.getMethodName());
 
-            // 6. 同步等待响应（带超时）
+            // 8. 同步等待响应（带超时）
             RpcResponse response = future.get(readTimeout, TimeUnit.MILLISECONDS);
 
-            // 7. 检查响应状态
+            // 9. 检查响应状态
             if (response.getCode() != 200) {
                 throw new RuntimeException("RPC 调用失败：" + response.getMessage());
             }

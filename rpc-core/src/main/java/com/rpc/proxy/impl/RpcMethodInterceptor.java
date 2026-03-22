@@ -15,14 +15,10 @@ import java.lang.reflect.Method;
 @Slf4j
 public class RpcMethodInterceptor implements MethodInterceptor {
     private final Class<?> serviceClass;
-    private final String host;
-    private final int port;
     private static RpcNettyClient client;
 
-    public RpcMethodInterceptor(Class<?> serviceClass, String host, int port, RpcNettyClient client) {
+    public RpcMethodInterceptor(Class<?> serviceClass, RpcNettyClient client) {
         this.serviceClass = serviceClass;
-        this.host = host;
-        this.port = port;
         this.client = client;
     }
 
@@ -45,7 +41,7 @@ public class RpcMethodInterceptor implements MethodInterceptor {
         if (client == null) {
             throw new IllegalStateException("RPC 客户端未初始化");
         }
-        RpcResponse response = client.sendRequest(request, host, port);
+        RpcResponse response = client.sendRequest(request);
         // 4. 返回结果
         if (response.getCode() == 200) {
             return response.getData();
