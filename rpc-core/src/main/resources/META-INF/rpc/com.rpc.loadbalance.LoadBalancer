@@ -1,0 +1,4 @@
+random=com.rpc.loadbalance.impl.RandomLoadBalancer
+roundrobin=com.rpc.loadbalance.impl.RoundRobinLoadBalancer
+consistenthash=com.rpc.loadbalance.impl.ConsistentHashLoadBalancer
+leastconnections=com.rpc.loadbalance.impl.LeastConnectionsLoadBalancer

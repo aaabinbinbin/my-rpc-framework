@@ -1,8 +1,11 @@
 package com.rpc.serialize;
 
+import com.rpc.spi.SPI;
+
 /**
  * 序列化接口
  */
+@SPI("kryo")
 public interface Serializer {
     /**
      * 序列化

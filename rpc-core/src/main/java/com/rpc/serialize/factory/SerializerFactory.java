@@ -5,10 +5,12 @@ import com.rpc.serialize.impl.HessianSerializer;
 import com.rpc.serialize.impl.JavaSerializer;
 import com.rpc.serialize.impl.JsonSerializer;
 import com.rpc.serialize.impl.KryoSerializer;
+import com.rpc.spi.ExtensionFactory;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.InputStream;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
@@ -24,14 +26,18 @@ public class SerializerFactory {
     public static final Serializer DEFAULT_SERIALIZER;
 
     static {
-        // 注册各种序列化器
-        SERIALIZER_MAP.put(KryoSerializer.TYPE_KRYO, new KryoSerializer());
-        SERIALIZER_MAP.put(JsonSerializer.TYPE_JSON, new JsonSerializer());
-        SERIALIZER_MAP.put(JavaSerializer.TYPE_JAVA, new JavaSerializer());
-        SERIALIZER_MAP.put(HessianSerializer.TYPE_HESSIAN, new HessianSerializer());
+        // 使用 SPI 加载所有序列化器
+        List<Serializer> serializerList = ExtensionFactory.getExtensions(Serializer.class);
+        for (Serializer serializer : serializerList) {
+            SERIALIZER_MAP.put(serializer.getSerializerType(), serializer);
+            log.info("加载序列化器: {} -> {}",
+                    serializer.getSerializerType(),
+                    serializer.getClass().getSimpleName());
+        }
 
-        // 从配置文件加载默认序列化器
-        DEFAULT_SERIALIZER = loadDefaultSerializer();
+        // 获取默认序列化器
+        DEFAULT_SERIALIZER = ExtensionFactory.getDefaultExtension(Serializer.class);
+        log.info("默认序列化器: {}", DEFAULT_SERIALIZER.getClass().getSimpleName());
     }
 
     /**
@@ -50,38 +56,10 @@ public class SerializerFactory {
         return DEFAULT_SERIALIZER;
     }
 
-    private static Serializer loadDefaultSerializer() {
-        try {
-            // 从 classpath 加载 rpc.properties
-            Properties props = new Properties();
-            InputStream is = SerializerFactory.class.getClassLoader()
-                    .getResourceAsStream("rpc.properties");
-
-            if (is != null) {
-                props.load(is);
-                String typeName = props.getProperty("rpc.serializer.type", "kryo");
-                return getSerializerByName(typeName);
-            }
-        } catch (Exception e) {
-            // 如果加载失败，使用 Kryo 作为默认
-            System.err.println("加载序列化器配置失败，使用默认 Kryo: " + e.getMessage());
-        }
-        return new KryoSerializer();
-    }
-
-    private static Serializer getSerializerByName(String name) {
-        switch (name.toLowerCase().trim()) {
-            case "kryo":
-                return new KryoSerializer();
-            case "json":
-                return new JsonSerializer();
-            case "hessian":
-                return new HessianSerializer();
-            case "java":
-                return new JavaSerializer();
-            default:
-                System.err.println("未识别的序列化器：" + name + "，使用 Kryo");
-                return new KryoSerializer();
-        }
+    /**
+     * 根据名称获取序列化器
+     */
+    public static Serializer getSerializer(String name) {
+        return ExtensionFactory.getExtension(Serializer.class, name);
     }
 }

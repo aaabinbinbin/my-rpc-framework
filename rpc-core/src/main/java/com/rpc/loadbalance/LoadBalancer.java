@@ -1,11 +1,14 @@
 package com.rpc.loadbalance;
 
+import com.rpc.spi.SPI;
+
 import java.net.InetSocketAddress;
 import java.util.List;
 
 /**
  * 负载均衡器接口
  */
+@SPI("random")
 public interface LoadBalancer {
     /**
      * 从服务列表中选择一个节点
