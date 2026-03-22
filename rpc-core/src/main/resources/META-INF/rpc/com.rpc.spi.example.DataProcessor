@@ -1,0 +1,4 @@
+default=com.rpc.spi.example.DefaultDataProcessor
+json=com.rpc.spi.example.JsonDataProcessor
+advanced=com.rpc.spi.example.AdvancedDataProcessor
+optional=com.rpc.spi.example.OptionalInjectProcessor

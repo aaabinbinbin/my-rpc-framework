@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -12,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 扩展加载器
  * 
- * 负责加载指定接口的所有实现类
+ * 负责加载指定接口的所有实现类，并支持依赖注入
  * 
  * @param <T> 扩展点接口类型
  */
@@ -22,6 +24,8 @@ public class ExtensionLoader<T> {
     private static final String SPI_DIRECTORY = "META-INF/rpc/";
     
     private static final Map<Class<?>, ExtensionLoader<?>> LOADERS = new ConcurrentHashMap<>();
+    
+    private static final Set<Class<?>> BUILDING_INSTANCES = Collections.newSetFromMap(new ConcurrentHashMap<>());
     
     private final Class<T> type;
     private final Map<String, Class<?>> extensionClasses = new ConcurrentHashMap<>();
@@ -180,7 +184,7 @@ public class ExtensionLoader<T> {
     }
     
     /**
-     * 创建扩展实例
+     * 创建扩展实例（支持依赖注入）
      */
     @SuppressWarnings("unchecked")
     private T createExtension(String name) {
@@ -190,12 +194,152 @@ public class ExtensionLoader<T> {
         }
         
         try {
+            // 检查循环依赖
+            if (BUILDING_INSTANCES.contains(clazz)) {
+                throw new IllegalStateException("检测到循环依赖: " + clazz.getName());
+            }
+            
+            BUILDING_INSTANCES.add(clazz);
+            
+            // 创建实例
             T instance = (T) clazz.getDeclaredConstructor().newInstance();
+            
+            // 注入依赖
+            injectExtension(instance);
+            
+            // 调用初始化方法
+            invokeInitializeMethod(instance);
+            
             return instance;
             
         } catch (Exception e) {
             log.error("创建扩展实例失败: {}", name, e);
             throw new RuntimeException("创建扩展实例失败: " + name, e);
+        } finally {
+            BUILDING_INSTANCES.remove(clazz);
+        }
+    }
+    
+    /**
+     * 注入依赖
+     */
+    private void injectExtension(Object instance) {
+        Class<?> clazz = instance.getClass();
+        
+        // 遍历所有字段（包括父类）
+        while (clazz != null && clazz != Object.class) {
+            for (Field field : clazz.getDeclaredFields()) {
+                if (field.isAnnotationPresent(Inject.class)) {
+                    injectField(instance, field);
+                }
+            }
+            clazz = clazz.getSuperclass();
+        }
+    }
+    
+    /**
+     * 注入字段
+     */
+    private void injectField(Object instance, Field field) {
+        Inject inject = field.getAnnotation(Inject.class);
+        Class<?> fieldType = field.getType();
+        String injectName = inject.value();
+        boolean required = inject.required();
+        
+        try {
+            Object dependency = null;
+            
+            // 如果字段类型是 SPI 扩展点，使用 ExtensionLoader 加载
+            if (fieldType.isAnnotationPresent(SPI.class)) {
+                ExtensionLoader<?> loader = getExtensionLoader(fieldType);
+                
+                if (injectName != null && !injectName.isEmpty()) {
+                    // 先检查扩展是否存在，避免 getExtension 抛出异常
+                    if (loader.hasExtension(injectName)) {
+                        dependency = loader.getExtension(injectName);
+                    } else {
+                        // 扩展不存在
+                        if (required) {
+                            throw new IllegalStateException("找不到扩展: " + injectName + 
+                                " (field: " + field.getName() + ")");
+                        } else {
+                            log.debug("可选扩展不存在，跳过注入: {} -> {} (扩展名: {})", 
+                                instance.getClass().getSimpleName(), field.getName(), injectName);
+                            return;
+                        }
+                    }
+                } else {
+                    dependency = loader.getDefaultExtension();
+                }
+            } else {
+                // 非 SPI 扩展点，尝试从全局容器获取（可扩展）
+                dependency = getBeanFromContainer(fieldType, injectName);
+            }
+            
+            if (dependency == null) {
+                if (required) {
+                    throw new IllegalStateException("无法注入依赖: " + field.getName() + 
+                        " (type: " + fieldType.getName() + ")");
+                } else {
+                    log.debug("可选依赖未找到，跳过注入: {} -> {}", 
+                        instance.getClass().getSimpleName(), field.getName());
+                    return;
+                }
+            }
+            
+            // 设置字段值
+            field.setAccessible(true);
+            field.set(instance, dependency);
+            
+            log.debug("注入依赖成功: {}#{} = {}", 
+                instance.getClass().getSimpleName(), 
+                field.getName(), 
+                dependency.getClass().getSimpleName());
+            
+        } catch (IllegalAccessException e) {
+            if (required) {
+                throw new RuntimeException("注入依赖失败: " + field.getName(), e);
+            } else {
+                log.warn("注入依赖失败（非必须）: {} -> {}", 
+                    instance.getClass().getSimpleName(), field.getName(), e);
+            }
+        } catch (IllegalStateException e) {
+            // 捕获 getExtension 可能抛出的其他 IllegalStateException
+            if (required) {
+                throw e;
+            } else {
+                log.debug("可选依赖加载失败，跳过注入: {} -> {} ({})", 
+                    instance.getClass().getSimpleName(), field.getName(), e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * 从容器获取 Bean（可扩展为 Spring 等容器）
+     */
+    private Object getBeanFromContainer(Class<?> type, String name) {
+        return null;
+    }
+    
+    /**
+     * 调用初始化方法
+     */
+    private void invokeInitializeMethod(Object instance) {
+        Class<?> clazz = instance.getClass();
+        
+        // 查找 @Initialize 注解的方法
+        for (Method method : clazz.getMethods()) {
+            if (method.isAnnotationPresent(Initialize.class)) {
+                try {
+                    method.setAccessible(true);
+                    method.invoke(instance);
+                    log.debug("调用初始化方法: {}#{}", 
+                        clazz.getSimpleName(), method.getName());
+                } catch (Exception e) {
+                    log.warn("调用初始化方法失败: {}#{}", 
+                        clazz.getSimpleName(), method.getName(), e);
+                }
+            }
         }
     }
     

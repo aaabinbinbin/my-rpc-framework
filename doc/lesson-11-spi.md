@@ -1723,6 +1723,10 @@ public class LoadBalancerSpiTest {
 
 ### 7.1 自动注入支持
 
+SPI 支持通过 `@Inject` 注解实现扩展实例的自动注入，让扩展点可以方便地依赖其他扩展。
+
+#### @Inject 注解定义
+
 ```java
 package com.rpc.spi;
 
@@ -1730,6 +1734,8 @@ import java.lang.annotation.*;
 
 /**
  * 依赖注入注解
+ * 
+ * 用于标注需要注入的扩展实例字段
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
@@ -1737,17 +1743,184 @@ import java.lang.annotation.*;
 public @interface Inject {
     
     /**
-     * 注入的扩展名称，为空则使用默认
+     * 注入的扩展名称
+     * 为空则使用默认扩展
      */
     String value() default "";
+    
+    /**
+     * 是否必须注入
+     * 如果为 true，注入失败会抛出异常
+     * 如果为 false，注入失败只记录警告日志
+     */
+    boolean required() default true;
 }
 ```
 
-### 7.2 扩展增强的 ExtensionLoader
+#### @Initialize 注解定义
+
+```java
+package com.rpc.spi;
+
+import java.lang.annotation.*;
+
+/**
+ * 初始化方法注解
+ * 
+ * 用于标注扩展实例创建后需要执行的初始化方法
+ */
+@Documented
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface Initialize {
+}
+```
+
+### 7.2 使用示例
+
+#### 定义扩展点接口
+
+```java
+package com.rpc.spi.example;
+
+import com.rpc.spi.SPI;
+
+/**
+ * 数据处理器接口
+ */
+@SPI("default")
+public interface DataProcessor {
+    
+    /**
+     * 处理数据
+     */
+    String process(String data);
+    
+    /**
+     * 获取处理器名称
+     */
+    String getName();
+}
+```
+
+#### 实现带依赖注入的扩展
+
+```java
+package com.rpc.spi.example;
+
+import com.rpc.serialize.Serializer;
+import com.rpc.spi.Initialize;
+import com.rpc.spi.Inject;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * 默认数据处理器
+ */
+@Slf4j
+@Getter
+public class DefaultDataProcessor implements DataProcessor {
+    
+    /**
+     * 注入默认序列化器
+     */
+    @Inject
+    private Serializer serializer;
+    
+    /**
+     * 注入指定名称的序列化器
+     */
+    @Inject("json")
+    private Serializer jsonSerializer;
+    
+    /**
+     * 可选注入，失败不报错
+     */
+    @Inject(value = "nonexistent", required = false)
+    private Serializer optionalSerializer;
+    
+    private boolean initialized = false;
+    
+    @Override
+    public String process(String data) {
+        byte[] bytes = serializer.serialize(data);
+        String result = serializer.deserialize(bytes, String.class);
+        return "Processed by " + getName() + ": " + result;
+    }
+    
+    @Override
+    public String getName() {
+        return "DefaultDataProcessor";
+    }
+    
+    /**
+     * 初始化方法
+     */
+    @Initialize
+    public void init() {
+        this.initialized = true;
+        log.info("DefaultDataProcessor 初始化完成");
+    }
+}
+```
+
+#### 多依赖注入示例
+
+```java
+package com.rpc.spi.example;
+
+import com.rpc.loadbalance.LoadBalancer;
+import com.rpc.serialize.Serializer;
+import com.rpc.spi.Initialize;
+import com.rpc.spi.Inject;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * 高级数据处理器 - 多依赖注入
+ */
+@Slf4j
+@Getter
+public class AdvancedDataProcessor implements DataProcessor {
+    
+    /**
+     * 注入 Kryo 序列化器
+     */
+    @Inject("kryo")
+    private Serializer serializer;
+    
+    /**
+     * 注入轮询负载均衡器
+     */
+    @Inject("roundrobin")
+    private LoadBalancer loadBalancer;
+    
+    private boolean initialized = false;
+    
+    @Override
+    public String process(String data) {
+        byte[] bytes = serializer.serialize(data);
+        return serializer.deserialize(bytes, String.class);
+    }
+    
+    @Override
+    public String getName() {
+        return "AdvancedDataProcessor";
+    }
+    
+    @Initialize
+    public void init() {
+        this.initialized = true;
+        log.info("AdvancedDataProcessor 初始化完成");
+    }
+}
+```
+
+### 7.3 扩展增强的 ExtensionLoader
 
 ```java
 /**
- * 创建扩展实例（支持依赖注入）
+ * 创建扩展实例（支持依赖注入和初始化）
  */
 @SuppressWarnings("unchecked")
 private T createExtension(String name) {
@@ -1757,16 +1930,29 @@ private T createExtension(String name) {
     }
     
     try {
+        // 检查循环依赖
+        if (BUILDING_INSTANCES.contains(clazz)) {
+            throw new IllegalStateException("检测到循环依赖: " + clazz.getName());
+        }
+        
+        BUILDING_INSTANCES.add(clazz);
+        
+        // 创建实例
         T instance = (T) clazz.getDeclaredConstructor().newInstance();
         
         // 注入依赖
         injectExtension(instance);
+        
+        // 调用初始化方法
+        invokeInitializeMethod(instance);
         
         return instance;
         
     } catch (Exception e) {
         log.error("创建扩展实例失败: {}", name, e);
         throw new RuntimeException("创建扩展实例失败: " + name, e);
+    } finally {
+        BUILDING_INSTANCES.remove(clazz);
     }
 }
 
@@ -1774,25 +1960,197 @@ private T createExtension(String name) {
  * 注入依赖
  */
 private void injectExtension(Object instance) {
-    for (Field field : instance.getClass().getDeclaredFields()) {
-        if (field.isAnnotationPresent(Inject.class)) {
-            Inject inject = field.getAnnotation(Inject.class);
-            Class<?> fieldType = field.getType();
-            
-            Object dependency;
-            if (!inject.value().isEmpty()) {
-                dependency = getExtension(inject.value());
-            } else {
-                dependency = getDefaultExtension();
-            }
-            
-            try {
-                field.setAccessible(true);
-                field.set(instance, dependency);
-            } catch (IllegalAccessException e) {
-                log.warn("注入依赖失败: {}", field.getName(), e);
+    Class<?> clazz = instance.getClass();
+    
+    // 遍历所有字段（包括父类）
+    while (clazz != null && clazz != Object.class) {
+        for (Field field : clazz.getDeclaredFields()) {
+            if (field.isAnnotationPresent(Inject.class)) {
+                injectField(instance, field);
             }
         }
+        clazz = clazz.getSuperclass();
+    }
+}
+
+/**
+ * 注入字段
+ */
+private void injectField(Object instance, Field field) {
+    Inject inject = field.getAnnotation(Inject.class);
+    Class<?> fieldType = field.getType();
+    String injectName = inject.value();
+    boolean required = inject.required();
+    
+    try {
+        Object dependency = null;
+        
+        // 如果字段类型是 SPI 扩展点，使用 ExtensionLoader 加载
+        if (fieldType.isAnnotationPresent(SPI.class)) {
+            ExtensionLoader<?> loader = getExtensionLoader(fieldType);
+            
+            if (injectName != null && !injectName.isEmpty()) {
+                // 关键：先检查扩展是否存在，避免 getExtension 抛出异常
+                if (loader.hasExtension(injectName)) {
+                    dependency = loader.getExtension(injectName);
+                } else {
+                    // 扩展不存在
+                    if (required) {
+                        throw new IllegalStateException("找不到扩展: " + injectName);
+                    } else {
+                        log.debug("可选扩展不存在，跳过注入: {}", injectName);
+                        return;
+                    }
+                }
+            } else {
+                dependency = loader.getDefaultExtension();
+            }
+        } else {
+            dependency = getBeanFromContainer(fieldType, injectName);
+        }
+        
+        if (dependency == null) {
+            if (required) {
+                throw new IllegalStateException("无法注入依赖: " + field.getName());
+            } else {
+                log.debug("可选依赖未找到，跳过注入: {}", field.getName());
+                return;
+            }
+        }
+        
+        field.setAccessible(true);
+        field.set(instance, dependency);
+        
+    } catch (IllegalAccessException e) {
+        if (required) {
+            throw new RuntimeException("注入依赖失败: " + field.getName(), e);
+        }
+    } catch (IllegalStateException e) {
+        if (required) {
+            throw e;
+        } else {
+            log.debug("可选依赖加载失败，跳过注入: {}", e.getMessage());
+        }
+    }
+}
+
+/**
+ * 调用初始化方法
+ */
+private void invokeInitializeMethod(Object instance) {
+    for (Method method : instance.getClass().getMethods()) {
+        if (method.isAnnotationPresent(Initialize.class)) {
+            try {
+                method.setAccessible(true);
+                method.invoke(instance);
+            } catch (Exception e) {
+                log.warn("调用初始化方法失败: {}", method.getName(), e);
+            }
+        }
+    }
+}
+```
+
+### 7.4 依赖注入特性
+
+| 特性 | 说明 |
+|------|------|
+| **自动注入** | 扩展实例创建时自动注入依赖 |
+| **指定名称** | 通过 `@Inject("name")` 指定注入哪个扩展 |
+| **默认注入** | `@Inject` 不指定名称时注入默认扩展 |
+| **可选注入** | `required=false` 时注入失败不报错 |
+| **循环依赖检测** | 自动检测并阻止循环依赖 |
+| **初始化回调** | 通过 `@Initialize` 注解标记初始化方法 |
+| **单例保证** | 注入的是同一个扩展实例 |
+
+### 7.5 依赖注入测试
+
+```java
+package com.rpc.spi;
+
+import com.rpc.spi.example.DataProcessor;
+import com.rpc.spi.example.DefaultDataProcessor;
+import com.rpc.serialize.Serializer;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.Test;
+
+import static org.junit.Assert.*;
+
+/**
+ * SPI 依赖注入功能测试
+ */
+@Slf4j
+public class SpiInjectTest {
+    
+    /**
+     * 测试基本依赖注入
+     */
+    @Test
+    public void testBasicInject() {
+        DataProcessor processor = ExtensionFactory.getExtension(
+            DataProcessor.class, "default");
+        
+        assertNotNull("处理器不应为空", processor);
+        assertTrue("应该是 DefaultDataProcessor", 
+            processor instanceof DefaultDataProcessor);
+        
+        DefaultDataProcessor defaultProcessor = (DefaultDataProcessor) processor;
+        
+        // 验证注入的序列化器
+        Serializer serializer = defaultProcessor.getSerializer();
+        assertNotNull("序列化器应该被注入", serializer);
+        
+        // 验证注入的 JSON 序列化器
+        Serializer jsonSerializer = defaultProcessor.getJsonSerializer();
+        assertNotNull("JSON 序列化器应该被注入", jsonSerializer);
+        assertEquals("应该是 JSON 序列化器", 2, jsonSerializer.getSerializerType());
+        
+        // 关键测试：验证可选注入不存在的扩展应该为 null（不会抛出异常）
+        Serializer optionalSerializer = defaultProcessor.getOptionalSerializer();
+        assertNull("可选注入不存在的扩展应该为 null", optionalSerializer);
+        
+        // 验证初始化方法被调用
+        assertTrue("初始化方法应该被调用", defaultProcessor.isInitialized());
+    }
+    
+    /**
+     * 测试 required=false 且扩展不存在（关键测试）
+     */
+    @Test
+    public void testOptionalInjectWithNonexistentExtension() {
+        // OptionalInjectProcessor 包含一个 required=false 且不存在的扩展
+        OptionalInjectProcessor processor = (OptionalInjectProcessor) 
+            ExtensionFactory.getExtension(DataProcessor.class, "optional");
+        
+        assertNotNull("处理器不应为空", processor);
+        
+        // 必须注入的扩展应该正常注入
+        assertNotNull("必须注入的序列化器不应为空", 
+            processor.getRequiredSerializer());
+        
+        // 关键：可选注入不存在的扩展应该为 null（不会抛出异常）
+        assertNull("可选注入不存在的扩展应该为 null", 
+            processor.getOptionalNonexistentSerializer());
+        
+        // 可选注入存在的扩展应该正常注入
+        assertNotNull("可选注入存在的扩展不应为空", 
+            processor.getOptionalExistingSerializer());
+    }
+    
+    /**
+     * 测试注入实例是单例
+     */
+    @Test
+    public void testInjectSingleton() {
+        Serializer defaultSerializer = ExtensionFactory.getDefaultExtension(
+            Serializer.class);
+        
+        DefaultDataProcessor processor = (DefaultDataProcessor) 
+            ExtensionFactory.getExtension(DataProcessor.class, "default");
+        
+        // 验证注入的是同一个实例
+        assertSame("注入的应该是同一个序列化器实例", 
+            defaultSerializer, processor.getSerializer());
     }
 }
 ```
@@ -1817,11 +2175,19 @@ private void injectExtension(Object instance) {
    - ExtensionLoader 核心类
    - 单例缓存优化
    - 默认扩展支持
+   - 依赖注入支持
 
 4. **SPI 应用场景**
    - 序列化器扩展
    - 负载均衡策略扩展
    - 注册中心扩展
+
+5. **依赖注入特性**
+   - @Inject 注解自动注入
+   - 指定名称注入
+   - 可选注入支持
+   - 初始化方法回调
+   - 循环依赖检测
 
 ### 高内聚低耦合设计
 
@@ -1834,21 +2200,21 @@ private void injectExtension(Object instance) {
 │    职责：标记扩展点接口，指定默认实现                   │
 │    依赖：无                                             │
 │                                                         │
+│  @Inject 注解                                           │
+│    职责：标记需要注入的字段                             │
+│    依赖：无                                             │
+│                                                         │
+│  @Initialize 注解                                       │
+│    职责：标记初始化方法                                 │
+│    依赖：无                                             │
+│                                                         │
 │  ExtensionLoader<T>                                     │
-│    职责：加载和管理扩展实现                             │
-│    依赖：@SPI 注解                                      │
+│    职责：加载和管理扩展实现，支持依赖注入               │
+│    依赖：@SPI, @Inject, @Initialize                    │
 │                                                         │
 │  ExtensionFactory                                       │
 │    职责：提供统一的扩展获取入口                         │
 │    依赖：ExtensionLoader                                │
-│                                                         │
-│  Serializer 接口                                        │
-│    职责：定义序列化规范                                 │
-│    依赖：@SPI 注解                                      │
-│                                                         │
-│  LoadBalancer 接口                                      │
-│    职责：定义负载均衡规范                               │
-│    依赖：@SPI 注解                                      │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -1859,6 +2225,7 @@ private void injectExtension(Object instance) {
 2. ✅ **低耦合**：通过接口解耦，实现可插拔
 3. ✅ **易扩展**：新增实现只需添加配置
 4. ✅ **易测试**：每个组件可独立测试
+5. ✅ **自动注入**：扩展依赖自动注入，无需手动管理
 
 ---
 
