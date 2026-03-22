@@ -1,5 +1,6 @@
 package com.rpc.transport.netty.server.config;
 
+import lombok.Builder;
 import lombok.Data;
 
 /**
@@ -24,6 +25,15 @@ public class RpcServerConfig {
 
     /** 优雅关闭超时时间（秒） */
     private int shutdownTimeout = 10;
+
+    /** 读空闲超时时间（毫秒），用于检测客户端是否存活 */
+    private int readerIdleTime = 30000; // 30秒
+
+    /** 写空闲超时时间（毫秒），默认不检测 */
+    private int writerIdleTime = 0;
+
+    /** 全空闲超时时间（毫秒），默认不检测 */
+    private int allIdleTime = 0;
 
     // Builder 模式
     public static RpcServerConfig custom() {

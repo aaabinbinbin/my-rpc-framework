@@ -35,21 +35,26 @@ public class RpcRequestHandler extends ChannelInboundHandlerAdapter {
 
         RpcMessage message = (RpcMessage) msg;
         RpcHeader header = message.getHeader();
+        RpcMessageType messageType = RpcMessageType.fromCode(header.getMessageType());
 
-        // 1. 根据消息类型处理
-        if (header.getMessageType() == RpcMessageType.REQUEST) {
-            handleRequest(ctx, message);
-        } else if (header.getMessageType() == RpcMessageType.HEARTBEAT_REQUEST) {
-            handleHeartbeat(ctx, message);
-        } else {
-            log.warn("不支持的消息类型：{}", header.getMessageType());
+        switch (messageType) {
+            case HEARTBEAT_REQUEST:
+                // 处理心跳请求
+                handleHeartbeatRequest(ctx, message);
+                break;
+            case REQUEST:
+                // 处理业务请求
+                handleBusinessRequest(ctx, message);
+                break;
+            default:
+                log.warn("未知消息类型：{}", messageType);
         }
     }
 
     /**
      * 处理 RPC 请求
      */
-    private void handleRequest(ChannelHandlerContext ctx, RpcMessage requestMessage) {
+    private void handleBusinessRequest(ChannelHandlerContext ctx, RpcMessage requestMessage) {
         RpcHeader requestHeader = requestMessage.getHeader();
         RpcRequest rpcRequest = (RpcRequest) requestMessage.getBody();
 
@@ -100,11 +105,42 @@ public class RpcRequestHandler extends ChannelInboundHandlerAdapter {
     /**
      * 处理心跳请求
      */
-    private void handleHeartbeat(ChannelHandlerContext ctx, RpcMessage requestMessage) {
-        log.debug("收到心跳请求");
-        RpcResponse heartbeatResponse = RpcResponse.success("PONG",
-                String.valueOf(requestMessage.getHeader().getRequestId()));
-        sendMessage(ctx, heartbeatResponse, requestMessage.getHeader());
+    private void handleHeartbeatRequest(ChannelHandlerContext ctx, RpcMessage request) {
+        try {
+            RpcHeartbeat heartbeatRequest = (RpcHeartbeat) request.getBody();
+            long requestId = heartbeatRequest.getRequestId();
+
+            log.debug("收到心跳请求：requestId={}", requestId);
+
+            // 构建心跳响应
+            RpcHeartbeat heartbeatResponse = RpcHeartbeat.createResponse(requestId);
+
+            // 构建响应消息头
+            RpcHeader header = RpcHeader.builder()
+                    .magicNumber(RpcHeader.MAGIC_NUMBER)
+                    .version(RpcHeader.VERSION)
+                    .serializerType((byte) 0)
+                    .messageType(RpcMessageType.HEARTBEAT_RESPONSE.getCode())
+                    .reserved((byte) 0)
+                    .requestId(requestId)
+                    .build();
+
+            // 组装响应消息
+            RpcMessage response = new RpcMessage();
+            response.setHeader(header);
+            response.setBody(heartbeatResponse);
+
+            // 发送响应
+            ctx.writeAndFlush(response)
+                    .addListener(future -> {
+                        if (!future.isSuccess()) {
+                            log.warn("发送心跳响应失败", future.cause());
+                        }
+                    });
+
+        } catch (Exception e) {
+            log.error("处理心跳请求失败", e);
+        }
     }
 
     /**
@@ -116,7 +152,7 @@ public class RpcRequestHandler extends ChannelInboundHandlerAdapter {
                 .magicNumber(RpcHeader.MAGIC_NUMBER)
                 .version(RpcHeader.VERSION)
                 .serializerType(requestHeader.getSerializerType())
-                .messageType(RpcMessageType.RESPONSE)
+                .messageType(RpcMessageType.RESPONSE.getCode())
                 .reserved((byte) 0)
                 .requestId(requestHeader.getRequestId())
                 .build();

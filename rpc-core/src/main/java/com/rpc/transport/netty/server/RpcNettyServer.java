@@ -7,6 +7,7 @@ import com.rpc.codec.RpcProtocolDecoder;
 import com.rpc.codec.RpcProtocolEncoder;
 import com.rpc.registry.LocalRegistry;
 import com.rpc.registry.impl.LocalRegistryImpl;
+import com.rpc.transport.netty.server.handler.heart.ServerHeartbeatHandler;
 import com.rpc.transport.netty.server.statistics.StatisticsManager;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
@@ -38,6 +39,8 @@ public class RpcNettyServer {
     // Netty 线程组
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
+    // 心跳配置
+    private static final int HEARTBEAT_TIMEOUT = 60;  // 心跳超时时间（秒）
 
     public RpcNettyServer(RpcServerConfig config, ServiceRegistry registry) {
         this.config = config;
@@ -67,8 +70,12 @@ public class RpcNettyServer {
                             ch.pipeline()
                                     // 入站处理器（按顺序执行）
                                     .addLast("idleStateHandler",
-                                            new IdleStateHandler(30, 0,
-                                                    0, TimeUnit.SECONDS)) // 空闲检测处理器 0 - 不检测
+                                            new IdleStateHandler(
+                                                    config.getReaderIdleTime(),  // 读空闲时间
+                                                    config.getWriterIdleTime(),  // 写空闲时间
+                                                    config.getAllIdleTime(),     // 全空闲时间
+                                                    TimeUnit.MILLISECONDS))
+                                    .addLast("serverHeartbeatHandler", new ServerHeartbeatHandler())
                                     .addLast("decoder", new RpcProtocolDecoder()) // 解码
                                     .addLast("encoder", new RpcProtocolEncoder()) // 编码  出站处理器，出站时才会使用
                                     // 编码器必须在处理器前面
@@ -96,7 +103,7 @@ public class RpcNettyServer {
     }
 
     /**
-     * 优雅关闭
+     * 关闭服务端
      */
     public void shutdown() {
         log.info("正在关闭 RPC 服务器...");

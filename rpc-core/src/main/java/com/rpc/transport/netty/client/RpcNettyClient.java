@@ -3,9 +3,11 @@ package com.rpc.transport.netty.client;
 import com.rpc.config.RpcClientConfig;
 import com.rpc.loadbalance.LoadBalancer;
 import com.rpc.transport.netty.client.connection.RpcConnection;
+import com.rpc.transport.netty.client.handler.heart.HeartbeatHandler;
+import com.rpc.transport.netty.client.handler.heart.ReconnectHandler;
 import com.rpc.transport.netty.client.manager.RequestManager;
 import com.rpc.transport.netty.client.handler.RpcClientHandler;
-import com.rpc.transport.netty.client.pool.ConnectionPool;
+import com.rpc.transport.netty.client.connection.pool.ConnectionPool;
 import com.rpc.protocol.*;
 import com.rpc.codec.RpcProtocolDecoder;
 import com.rpc.codec.RpcProtocolEncoder;
@@ -43,9 +45,10 @@ public class RpcNettyClient {
     private final ServiceRegistry serviceRegistry;
     // 负载均衡器
     private final LoadBalancer loadBalancer;
-
+    // 配置
     private int connectTimeout = 5000;  // 连接超时 5 秒
     private int readTimeout = 10000;     // 读取超时 10 秒
+    private static final int HEARTBEAT_INTERVAL = 30;  // 心跳间隔（秒）
 
     /**
      * 带服务注册中心的构造方法
@@ -69,9 +72,11 @@ public class RpcNettyClient {
                     protected void initChannel(SocketChannel ch) {
                         ch.pipeline()
                                 .addLast("idleStateHandler",
-                                        new IdleStateHandler(0, 30, 0, TimeUnit.SECONDS))
+                                        new IdleStateHandler(0, HEARTBEAT_INTERVAL, 0, TimeUnit.SECONDS))
                                 .addLast("decoder", new RpcProtocolDecoder())
                                 .addLast("encoder", new RpcProtocolEncoder())
+                                .addLast("heartbeatHandler", new HeartbeatHandler())
+                                .addLast("reconnectHandler", new ReconnectHandler(connectionPool))
                                 .addLast("handler", new RpcClientHandler(requestManager));
                     }
                 });
@@ -141,7 +146,7 @@ public class RpcNettyClient {
                     .magicNumber(RpcHeader.MAGIC_NUMBER)
                     .version(RpcHeader.VERSION)
                     .serializerType((byte) SerializerFactory.DEFAULT_SERIALIZER.getSerializerType())
-                    .messageType(RpcMessageType.REQUEST)
+                    .messageType(RpcMessageType.REQUEST.getCode())
                     .reserved((byte) 0)
                     .requestId(requestId)
                     .build();
@@ -169,55 +174,6 @@ public class RpcNettyClient {
             log.error("发送请求失败", e);
             requestManager.failRequest(Long.parseLong(rpcRequest.getRequestId()), e);
             throw new RuntimeException("发送请求失败", e);
-        }
-    }
-
-    /**
-     * 异步发送请求
-     */
-    public CompletableFuture<RpcResponse> sendRequestAsync(
-            RpcRequest rpcRequest, String host, int port) {
-
-        try {
-            // 1. 生成请求 ID
-            long requestId = generateRequestId();
-            rpcRequest.setRequestId(String.valueOf(requestId));
-
-            // 2. 创建 Future
-            CompletableFuture<RpcResponse> future = requestManager.addRequest(requestId);
-
-            // 3. 获取连接
-            RpcConnection connection = connectionPool.getConnection(host, port);
-
-            // 4. 构建消息
-            RpcHeader header = RpcHeader.builder()
-                    .magicNumber(RpcHeader.MAGIC_NUMBER)
-                    .version(RpcHeader.VERSION)
-                    .serializerType((byte) SerializerFactory.DEFAULT_SERIALIZER.getSerializerType())
-                    .messageType(RpcMessageType.REQUEST)
-                    .reserved((byte) 0)
-                    .requestId(requestId)
-                    .build();
-
-            RpcMessage message = new RpcMessage();
-            message.setHeader(header);
-            message.setBody(rpcRequest);
-
-            // 5. 异步发送
-            connection.getChannel().writeAndFlush(message)
-                    .addListener(f -> {
-                        if (!f.isSuccess()) {
-                            requestManager.failRequest(requestId, f.cause());
-                        }
-                    });
-
-            return future;
-
-        } catch (Exception e) {
-            log.error("异步发送请求失败", e);
-            CompletableFuture<RpcResponse> failedFuture = new CompletableFuture<>();
-            failedFuture.completeExceptionally(e);
-            return failedFuture;
         }
     }
 

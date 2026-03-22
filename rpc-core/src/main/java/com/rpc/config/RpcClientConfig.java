@@ -17,6 +17,18 @@ public class RpcClientConfig {
     // 读取超时时间（毫秒）
     private int readTimeout = 10000;
 
+    // 心跳间隔时间（毫秒），默认30秒
+    @Builder.Default
+    private int heartbeatInterval = 30000;
+
+    // 写空闲超时时间（毫秒），用于触发心跳
+    @Builder.Default
+    private int writerIdleTime = 30000;
+
+    // 读空闲超时时间（毫秒），用于检测连接是否存活
+    @Builder.Default
+    private int readerIdleTime = 60000;
+
     // 负载均衡器
     @Builder.Default
     private LoadBalancer loadBalancer = new RandomLoadBalancer();

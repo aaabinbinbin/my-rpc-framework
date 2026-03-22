@@ -1,18 +1,32 @@
 package com.rpc.protocol;
 
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
 /**
- * 消息类型枚举
+ * RPC 消息类型
  */
-public interface RpcMessageType {
-    /** 请求消息 */
-    byte REQUEST = 1;
+@Getter
+@AllArgsConstructor
+public enum RpcMessageType {
 
-    /** 响应消息 */
-    byte RESPONSE = 2;
+    REQUEST((byte) 1, "请求消息"),
+    RESPONSE((byte) 2, "响应消息"),
 
-    /** 心跳请求 */
-    byte HEARTBEAT_REQUEST = 3;
+    HEARTBEAT_REQUEST((byte) 3, "心跳请求"),
+    HEARTBEAT_RESPONSE((byte) 4, "心跳响应"),
 
-    /** 心跳响应 */
-    byte HEARTBEAT_RESPONSE = 4;
+    EXCEPTION((byte) 5, "异常消息");
+
+    private final byte code;
+    private final String description;
+
+    public static RpcMessageType fromCode(byte code) {
+        for (RpcMessageType type : values()) {
+            if (type.getCode() == code) {
+                return type;
+            }
+        }
+        throw new IllegalArgumentException("未知消息类型：" + code);
+    }
 }

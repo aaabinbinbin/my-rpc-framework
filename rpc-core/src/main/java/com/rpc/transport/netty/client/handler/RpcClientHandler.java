@@ -1,5 +1,7 @@
 package com.rpc.transport.netty.client.handler;
 
+import com.rpc.protocol.RpcHeartbeat;
+import com.rpc.transport.netty.client.RpcNettyClient;
 import com.rpc.transport.netty.client.manager.RequestManager;
 import com.rpc.protocol.RpcMessage;
 import com.rpc.protocol.RpcMessageType;
@@ -23,57 +25,49 @@ public class RpcClientHandler extends SimpleChannelInboundHandler<RpcMessage> {
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, RpcMessage message) {
-        // 1. 根据消息类型处理
-        if (message.getHeader().getMessageType() == RpcMessageType.RESPONSE) {
-            handleResponse(message);
-        } else if (message.getHeader().getMessageType() == RpcMessageType.HEARTBEAT_RESPONSE) {
-            log.debug("收到心跳响应");
-        } else {
-            log.warn("不支持的消息类型：{}", message.getHeader().getMessageType());
+        RpcMessageType messageType = RpcMessageType.fromCode(message.getHeader().getMessageType());
+
+        switch (messageType) {
+            case HEARTBEAT_RESPONSE:
+                // 处理心跳响应
+                handleHeartbeatResponse(message);
+                break;
+
+            case RESPONSE:
+                // 处理业务响应
+                handleBusinessResponse(message);
+                break;
+
+            default:
+                log.warn("未知消息类型：{}", messageType);
         }
     }
 
     /**
      * 处理响应
      */
-    private void handleResponse(RpcMessage message) {
+    private void handleBusinessResponse(RpcMessage message) {
         RpcResponse response = (RpcResponse) message.getBody();
         // 通知请求管理器完成 Future
         requestManager.completeResponse(response);
     }
 
-    @Override
-    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-        if (evt instanceof IdleStateEvent) {
-            IdleStateEvent event = (IdleStateEvent) evt;
-
-            // 写空闲时，发送心跳
-            if (event.state() == IdleState.WRITER_IDLE) {
-                log.debug("发送心跳");
-                sendHeartbeat(ctx);
-            }
-        } else {
-            super.userEventTriggered(ctx, evt);
-        }
-    }
-
     /**
-     * 发送心跳
+     * 处理心跳响应
      */
-    private void sendHeartbeat(ChannelHandlerContext ctx) {
-        // TODO: 实现心跳消息发送
-    }
+    private void handleHeartbeatResponse(RpcMessage message) {
+        RpcHeartbeat heartbeat = (RpcHeartbeat) message.getBody();
+        long requestId = heartbeat.getRequestId();
+        long timestamp = heartbeat.getTimestamp();
 
-    @Override
-    public void channelActive(ChannelHandlerContext ctx) {
-        log.info("已连接到服务器：{}", ctx.channel().remoteAddress());
-    }
+        // 计算往返延迟
+        long current = System.currentTimeMillis();
+        long latency = current - timestamp;
 
-    @Override
-    public void channelInactive(ChannelHandlerContext ctx) {
-        log.info("与服务器断开连接：{}", ctx.channel().remoteAddress());
-        // 失败所有待处理请求
-        // TODO: 实现失败逻辑
+        log.debug("收到心跳响应：requestId={}, 延迟={}ms", requestId, latency);
+
+        // 可以在这里记录心跳统计信息
+        // heartbeatStats.recordLatency(latency);
     }
 
     @Override

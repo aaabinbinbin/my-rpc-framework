@@ -77,11 +77,11 @@ public class RpcProtocolDecoder extends LengthFieldBasedFrameDecoder {
         Serializer serializer = SerializerFactory.getSerializer(header.getSerializerType());
         Object body;
         byte messageType = header.getMessageType();
-        if (messageType == RpcMessageType.REQUEST) {
+        if (messageType == RpcMessageType.REQUEST.getCode()) {
             body = serializer.deserialize(bodyBytes, RpcRequest.class);
-        } else if (messageType == RpcMessageType.RESPONSE) {
+        } else if (messageType == RpcMessageType.RESPONSE.getCode()) {
             body = serializer.deserialize(bodyBytes, RpcResponse.class);
-        } else if (messageType == RpcMessageType.HEARTBEAT_REQUEST || messageType == RpcMessageType.HEARTBEAT_RESPONSE) {
+        } else if (messageType == RpcMessageType.HEARTBEAT_REQUEST.getCode() || messageType == RpcMessageType.HEARTBEAT_RESPONSE.getCode()) {
             body = serializer.deserialize(bodyBytes, RpcHeartbeat.class);
         } else {
             // 其他类型（如心跳）使用 Object.class

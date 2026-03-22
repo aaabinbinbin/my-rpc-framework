@@ -38,7 +38,7 @@ public class RpcHeartbeatCodecTest {
         RpcHeader header = RpcHeader.builder()
                 .magicNumber(0x12345678)
                 .version((byte) 1)
-                .messageType(RpcMessageType.HEARTBEAT_REQUEST)  // 心跳请求类型
+                .messageType(RpcMessageType.HEARTBEAT_REQUEST.getCode())  // 心跳请求类型
                 .serializerType((byte) 1)  // Kryo 序列化
                 .requestId(requestId)
                 .build();
@@ -114,7 +114,7 @@ public class RpcHeartbeatCodecTest {
         RpcHeader header = RpcHeader.builder()
                 .magicNumber(0x12345678)
                 .version((byte) 1)
-                .messageType(RpcMessageType.HEARTBEAT_RESPONSE)  // 心跳响应类型
+                .messageType(RpcMessageType.HEARTBEAT_RESPONSE.getCode())  // 心跳响应类型
                 .serializerType((byte) 1)  // Kryo 序列化
                 .requestId(requestId)
                 .build();
@@ -190,7 +190,7 @@ public class RpcHeartbeatCodecTest {
         RpcHeader requestHeader = RpcHeader.builder()
                 .magicNumber(0x12345678)
                 .version((byte) 1)
-                .messageType(RpcMessageType.HEARTBEAT_REQUEST)
+                .messageType(RpcMessageType.HEARTBEAT_REQUEST.getCode())
                 .serializerType((byte) 1)
                 .requestId(requestId)
                 .build();
@@ -226,7 +226,7 @@ public class RpcHeartbeatCodecTest {
         RpcHeader responseHeader = RpcHeader.builder()
                 .magicNumber(0x12345678)
                 .version((byte) 1)
-                .messageType(RpcMessageType.HEARTBEAT_RESPONSE)
+                .messageType(RpcMessageType.HEARTBEAT_RESPONSE.getCode())
                 .serializerType((byte) 1)
                 .requestId(requestId)
                 .build();
@@ -285,7 +285,7 @@ public class RpcHeartbeatCodecTest {
             RpcHeader header = RpcHeader.builder()
                     .magicNumber(0x12345678)
                     .version((byte) 1)
-                    .messageType(RpcMessageType.HEARTBEAT_REQUEST)
+                    .messageType(RpcMessageType.HEARTBEAT_REQUEST.getCode())
                     .serializerType((byte) 1)
                     .requestId(requestId)
                     .build();

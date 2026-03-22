@@ -1,4 +1,4 @@
-package com.rpc.transport.netty.client.pool;
+package com.rpc.transport.netty.client.connection.pool;
 
 import com.rpc.transport.netty.client.connection.RpcConnection;
 import io.netty.bootstrap.Bootstrap;
@@ -57,12 +57,28 @@ public class ConnectionPool {
     }
 
     /**
+     * 尝试重新连接
+     */
+    public void reconnect(String host, int port) {
+        log.info("尝试重新连接到 {}:{}", host, port);
+        try {
+            // 移除旧连接
+            connectionMap.remove(buildKey(host, port));
+            // 创建新连接
+            getConnection(host, port);
+            log.info("重新连接成功");
+        } catch (Exception e) {
+            log.error("重新连接失败", e);
+            // 可以添加重试机制
+        }
+    }
+
+    /**
      * 关闭并移除连接
      */
     public void removeConnection(String host, int port) {
         String key = buildKey(host, port);
         RpcConnection connection = connectionMap.remove(key);
-
         if (connection != null) {
             connection.getChannel().close();
             log.info("连接已关闭：{}", key);
