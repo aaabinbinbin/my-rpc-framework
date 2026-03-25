@@ -27,7 +27,7 @@ public class RpcClientConfig {
 
     // 读空闲超时时间（毫秒），用于检测连接是否存活
     @Builder.Default
-    private int readerIdleTime = 60000;
+    private int readerIdleTime = 10000;
 
     // 负载均衡器
     @Builder.Default
