@@ -7,6 +7,7 @@ import com.rpc.common.exception.RpcException;
 import com.rpc.common.exception.dedicated.CircuitBreakerException;
 import com.rpc.config.RpcClientConfig;
 import com.rpc.faulttolerance.CircuitBreaker;
+import com.rpc.faulttolerance.DegradationPolicy;
 import com.rpc.faulttolerance.circuitbreaker.CircuitBreakerManager;
 import com.rpc.faulttolerance.retry.DefaultRetryStrategy;
 import com.rpc.faulttolerance.retry.RetryExecutor;
@@ -36,6 +37,7 @@ import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * RPC Netty 客户端
@@ -57,13 +59,26 @@ public class RpcNettyClient {
 
     /** 重试执行器 */
     private final RetryExecutor retryExecutor;
+    
+    // ========== 可选模块组件 ==========
+    
+    /** 降级策略（可选） */
+    private final DegradationPolicy degradationPolicy;
+    
+    /** 是否启用降级 */
+    private final boolean enableDegradation;
+    
+    /** 降级失败阈值 */
+    private final int degradationFailureThreshold;
+    
+    /** 连续失败计数器（用于触发降级） */
+    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
     // 配置
-    private int connectTimeout = 5000;  // 连接超时 5 秒
     private int readTimeout = 10000;     // 读取超时 10 秒
-    private static final int HEARTBEAT_INTERVAL = 30;  // 心跳间隔（秒）
 
     /**
      * 带服务注册中心的构造方法
+     * @param config 客户端配置（使用 Builder 模式简化创建）
      * @param serviceRegistry 服务注册中心
      */
     public RpcNettyClient(RpcClientConfig config, ServiceRegistry serviceRegistry) {
@@ -71,18 +86,31 @@ public class RpcNettyClient {
         this.eventLoopGroup = new NioEventLoopGroup();
         this.requestManager = new RequestManager();
         this.loadBalancer = config.getLoadBalancer();
+        readTimeout = config.getReadTimeout();
+        
         // 初始化容错组件
         this.circuitBreakerManager = CircuitBreakerManager.getInstance();
         this.retryExecutor = new RetryExecutor(
                 new DefaultRetryStrategy(),
                 config.getRetryTimes()
         );
+        
+        // 初始化可选模块组件
+        this.degradationPolicy = config.getDegradationPolicy();
+        this.enableDegradation = config.isEnableDegradation();
+        this.degradationFailureThreshold = config.getDegradationFailureThreshold();
+        
+        if (enableDegradation) {
+            log.info("已启用降级策略：policy={}, threshold={}",
+                    degradationPolicy != null ? degradationPolicy.getClass().getSimpleName() : "null",
+                    degradationFailureThreshold);
+        }
 
         // 创建 Bootstrap
         Bootstrap bootstrap = new Bootstrap();
         bootstrap.group(eventLoopGroup)
                 .channel(NioSocketChannel.class)
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, connectTimeout)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, config.getConnectTimeout())
                 .option(ChannelOption.TCP_NODELAY, true)
                 .handler(new LoggingHandler(LogLevel.INFO))
                 .handler(new ChannelInitializer<SocketChannel>() {
@@ -90,7 +118,7 @@ public class RpcNettyClient {
                     protected void initChannel(SocketChannel ch) {
                         ch.pipeline()
                                 .addLast("idleStateHandler",
-                                        new IdleStateHandler(0, HEARTBEAT_INTERVAL, 0, TimeUnit.SECONDS))
+                                        new IdleStateHandler(0, config.getHeartbeatInterval(), 0, TimeUnit.SECONDS))
                                 .addLast("decoder", new RpcProtocolDecoder())
                                 .addLast("encoder", new RpcProtocolEncoder())
                                 .addLast("heartbeatHandler", new HeartbeatHandler())
@@ -103,25 +131,57 @@ public class RpcNettyClient {
     }
 
     /**
-     * 发送 RPC 请求（增强版 - 实例级熔断）
+     * 发送 RPC 请求（集成重试、熔断、降级等功能）
      */
     public RpcResponse sendRequest(RpcRequest rpcRequest) throws Exception {
         String serviceName = rpcRequest.getServiceName();
 
+        // 【可选模块】检查是否需要降级
+        if (enableDegradation && shouldDegrade(serviceName)) {
+            log.warn("触发降级策略：{}", serviceName);
+            consecutiveFailures.incrementAndGet();
+            
+            if (degradationPolicy != null) {
+                // 执行降级策略
+                return degradationPolicy.degrade(rpcRequest, 
+                        new RuntimeException("服务不可用，已触发降级"));
+            } else {
+                // 没有配置降级策略，快速失败
+                throw new com.rpc.common.exception.RpcException(
+                        com.rpc.common.constant.ErrorCode.SERVICE_DEGRADED,
+                        "服务不可用，已触发降级但未配置降级策略");
+            }
+        }
+
         try {
             // 使用重试执行器，内部会调用 doSendRequestWithInstanceCircuitBreaker
-            return retryExecutor.executeWithRetry(rpcRequest,
+            RpcResponse response = retryExecutor.executeWithRetry(rpcRequest,
                     () -> doSendRequestWithInstanceCircuitBreaker(rpcRequest));
-
-        } catch (RpcException e) {
+            
+            // 【可选模块】请求成功，重置连续失败计数
+            resetFailureCount(serviceName);
+            
+            return response;
+                
+        } catch (com.rpc.common.exception.RpcException e) {
             // 重试失败，记录到服务级熔断器
             CircuitBreaker serviceCb = circuitBreakerManager.getServiceCircuitBreaker(serviceName);
             serviceCb.recordFailure();
+            
+            // 【可选模块】增加连续失败计数，可能触发降级
+            int failures = consecutiveFailures.incrementAndGet();
+            log.debug("连续失败次数：{}/{}", failures, degradationFailureThreshold);
+            
             throw e;
         } catch (Exception e) {
             CircuitBreaker serviceCb = circuitBreakerManager.getServiceCircuitBreaker(serviceName);
             serviceCb.recordFailure();
-            throw new RpcException(ErrorCode.SERVER_ERROR,
+            
+            // 【可选模块】增加连续失败计数
+            consecutiveFailures.incrementAndGet();
+            
+            throw new com.rpc.common.exception.RpcException(
+                    com.rpc.common.constant.ErrorCode.SERVER_ERROR,
                     "RPC 调用失败：" + e.getMessage(), e);
         }
     }
@@ -208,6 +268,43 @@ public class RpcNettyClient {
     private long generateRequestId() {
         // 简单实现：使用时间戳
         return System.nanoTime();
+    }
+
+    // ========== 可选模块的辅助方法 ==========
+
+    /**
+     * 判断是否应该降级
+     * @param serviceName 服务名称
+     * @return true-降级，false-不降级
+     */
+    private boolean shouldDegrade(String serviceName) {
+        // 检查熔断器状态（如果熔断器打开，也应该降级）
+        CircuitBreaker circuitBreaker = circuitBreakerManager.getServiceCircuitBreaker(serviceName);
+        if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
+            log.debug("熔断器已打开，触发降级：{}", serviceName);
+            return true;
+        }
+        
+        // 检查连续失败次数
+        int failures = consecutiveFailures.get();
+        if (failures >= degradationFailureThreshold) {
+            log.warn("连续失败次数达到阈值，触发降级：{} (失败次数={}/{})",
+                    serviceName, failures, degradationFailureThreshold);
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * 重置失败计数（调用成功后调用）
+     * @param serviceName 服务名称
+     */
+    private void resetFailureCount(String serviceName) {
+        int prevFailures = consecutiveFailures.getAndSet(0);
+        if (prevFailures > 0) {
+            log.info("服务恢复，重置失败计数：{} (之前失败次数={})", serviceName, prevFailures);
+        }
     }
 
     /**

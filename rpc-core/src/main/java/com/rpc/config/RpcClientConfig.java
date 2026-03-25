@@ -1,5 +1,6 @@
 package com.rpc.config;
 
+import com.rpc.faulttolerance.DegradationPolicy;
 import com.rpc.loadbalance.LoadBalancer;
 import com.rpc.loadbalance.factory.LoadBalancerFactory;
 import lombok.Builder;
@@ -36,6 +37,20 @@ public class RpcClientConfig {
     // 重试次数
     @Builder.Default
     private int retryTimes = 3;
+
+    // ========== 可选模块配置 ==========
+    
+    // 降级策略（可选，不配置则不启用降级）
+    @Builder.Default
+    private DegradationPolicy degradationPolicy = null;
+    
+    // 是否启用降级（默认 false）
+    @Builder.Default
+    private boolean enableDegradation = false;
+    
+    // 降级的触发条件：连续失败次数达到此阈值时触发降级（默认 10 次）
+    @Builder.Default
+    private int degradationFailureThreshold = 10;
 
     public static RpcClientConfig custom() {
         return RpcClientConfig.builder().build();
