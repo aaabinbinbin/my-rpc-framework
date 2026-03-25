@@ -1,5 +1,6 @@
 package com.rpc.faulttolerance.degrade;
 
+import com.rpc.common.constant.ErrorCode;
 import com.rpc.faulttolerance.DegradationPolicy;
 import com.rpc.protocol.RpcRequest;
 import com.rpc.protocol.RpcResponse;
@@ -38,6 +39,6 @@ public class DefaultValueDegradation implements DegradationPolicy {
         }
 
         log.warn("无默认值，使用快速失败：{}", key);
-        return RpcResponse.fail(503, "服务降级且无默认值", request.getRequestId());
+        return RpcResponse.fail(ErrorCode.SERVICE_DEGRADED.getCode(), "服务降级且无默认值", request.getRequestId());
     }
 }
