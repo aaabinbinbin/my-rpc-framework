@@ -29,9 +29,13 @@ public class RpcFrameworkConfig {
     private int writerIdleTime = 30000;
     private int readerIdleTime = 10000;
     private int retryTimes = 3;
+    private boolean reconnectEnabled = true;
     private int reconnectMaxRetryTimes = 5;
     private int reconnectInitialDelaySeconds = 2;
     private int reconnectMaxDelaySeconds = 60;
+    private boolean reconnectJitterEnabled = true;
+    private int reconnectJitterMinSeconds = 0;
+    private int reconnectJitterMaxSeconds = 1;
     private boolean enableDegradation = false;
     private int degradationFailureThreshold = 10;
 }

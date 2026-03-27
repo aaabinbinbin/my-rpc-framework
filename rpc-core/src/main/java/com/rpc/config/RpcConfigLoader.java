@@ -47,9 +47,13 @@ public final class RpcConfigLoader {
         config.setWriterIdleTime(getInt(properties, RpcConfigKeys.CLIENT_WRITER_IDLE, config.getWriterIdleTime()));
         config.setReaderIdleTime(getInt(properties, RpcConfigKeys.CLIENT_READER_IDLE, config.getReaderIdleTime()));
         config.setRetryTimes(getInt(properties, RpcConfigKeys.CLIENT_RETRY_TIMES, config.getRetryTimes()));
+        config.setReconnectEnabled(getBoolean(properties, RpcConfigKeys.CLIENT_RECONNECT_ENABLED, config.isReconnectEnabled()));
         config.setReconnectMaxRetryTimes(getInt(properties, RpcConfigKeys.CLIENT_RECONNECT_MAX_RETRY_TIMES, config.getReconnectMaxRetryTimes()));
         config.setReconnectInitialDelaySeconds(getInt(properties, RpcConfigKeys.CLIENT_RECONNECT_INITIAL_DELAY, config.getReconnectInitialDelaySeconds()));
         config.setReconnectMaxDelaySeconds(getInt(properties, RpcConfigKeys.CLIENT_RECONNECT_MAX_DELAY, config.getReconnectMaxDelaySeconds()));
+        config.setReconnectJitterEnabled(getBoolean(properties, RpcConfigKeys.CLIENT_RECONNECT_JITTER_ENABLED, config.isReconnectJitterEnabled()));
+        config.setReconnectJitterMinSeconds(getInt(properties, RpcConfigKeys.CLIENT_RECONNECT_JITTER_MIN, config.getReconnectJitterMinSeconds()));
+        config.setReconnectJitterMaxSeconds(getInt(properties, RpcConfigKeys.CLIENT_RECONNECT_JITTER_MAX, config.getReconnectJitterMaxSeconds()));
         config.setEnableDegradation(getBoolean(properties, RpcConfigKeys.CLIENT_ENABLE_DEGRADATION, config.isEnableDegradation()));
         config.setDegradationFailureThreshold(getInt(properties, RpcConfigKeys.CLIENT_DEGRADATION_FAILURE_THRESHOLD, config.getDegradationFailureThreshold()));
         return config;

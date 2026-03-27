@@ -18,9 +18,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ReconnectHandler extends ChannelInboundHandlerAdapter {
     private final ConnectionPool connectionPool;
     private final AtomicBoolean closing;
+    private final boolean reconnectEnabled;
     private final int maxRetryTimes;
     private final int initialDelaySeconds;
     private final int maxDelaySeconds;
+    private final boolean jitterEnabled;
+    private final int jitterMinSeconds;
+    private final int jitterMaxSeconds;
     private final AtomicInteger retryCount = new AtomicInteger(0);
     private final ScheduledExecutorService scheduler =
             Executors.newScheduledThreadPool(1, new DefaultThreadFactory("reconnect-scheduler"));
@@ -28,9 +32,13 @@ public class ReconnectHandler extends ChannelInboundHandlerAdapter {
     public ReconnectHandler(ConnectionPool connectionPool, AtomicBoolean closing, RpcClientConfig config) {
         this.connectionPool = connectionPool;
         this.closing = closing;
+        this.reconnectEnabled = config.isReconnectEnabled();
         this.maxRetryTimes = config.getReconnectMaxRetryTimes();
         this.initialDelaySeconds = config.getReconnectInitialDelaySeconds();
         this.maxDelaySeconds = config.getReconnectMaxDelaySeconds();
+        this.jitterEnabled = config.isReconnectJitterEnabled();
+        this.jitterMinSeconds = config.getReconnectJitterMinSeconds();
+        this.jitterMaxSeconds = config.getReconnectJitterMaxSeconds();
     }
 
     @Override
@@ -57,6 +65,11 @@ public class ReconnectHandler extends ChannelInboundHandlerAdapter {
 
     private void scheduleReconnect(String host, int port) {
         if (closing.get()) {
+            closeScheduler();
+            return;
+        }
+        if (!reconnectEnabled) {
+            log.info("已禁用自动重连，跳过重连调度");
             closeScheduler();
             return;
         }
@@ -104,7 +117,12 @@ public class ReconnectHandler extends ChannelInboundHandlerAdapter {
     private int calculateBackoffDelay(int retryTimes) {
         int exponentialDelay = initialDelaySeconds * (1 << retryTimes);
         int cappedDelay = Math.min(exponentialDelay, maxDelaySeconds);
-        int jitter = (int) (Math.random() * 2);
+        int jitter = 0;
+        if (jitterEnabled) {
+            int safeMin = Math.max(0, jitterMinSeconds);
+            int safeMax = Math.max(safeMin, jitterMaxSeconds);
+            jitter = safeMin + (int) (Math.random() * (safeMax - safeMin + 1));
+        }
         return cappedDelay + jitter;
     }
 

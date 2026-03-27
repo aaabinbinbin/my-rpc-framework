@@ -40,6 +40,9 @@ public class RpcClientConfig {
     private int retryTimes = 3;
 
     @Builder.Default
+    private boolean reconnectEnabled = true;
+
+    @Builder.Default
     private int reconnectMaxRetryTimes = 5;
 
     @Builder.Default
@@ -47,6 +50,15 @@ public class RpcClientConfig {
 
     @Builder.Default
     private int reconnectMaxDelaySeconds = 60;
+
+    @Builder.Default
+    private boolean reconnectJitterEnabled = true;
+
+    @Builder.Default
+    private int reconnectJitterMinSeconds = 0;
+
+    @Builder.Default
+    private int reconnectJitterMaxSeconds = 1;
 
     @Builder.Default
     private DegradationPolicy degradationPolicy = null;

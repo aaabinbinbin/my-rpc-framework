@@ -334,13 +334,17 @@ rpc.client.readTimeout=10000
 当前 Netty 客户端支持通过配置文件控制重连行为：
 
 ```properties
+rpc.client.reconnect.enabled=true
 rpc.client.reconnect.maxRetryTimes=5
 rpc.client.reconnect.initialDelaySeconds=2
 rpc.client.reconnect.maxDelaySeconds=60
+rpc.client.reconnect.jitter.enabled=true
+rpc.client.reconnect.jitter.minSeconds=0
+rpc.client.reconnect.jitter.maxSeconds=1
 ```
 
 对应配置流转链路是：
 
 `rpc.properties -> RpcConfigLoader -> RpcFrameworkConfig -> RpcClientConfig -> ReconnectHandler`
 
-这样后续调整重试次数和指数退避窗口时，不需要再改 `ReconnectHandler` 源码。
+这样后续调整是否自动重连、重试次数、指数退避窗口和随机抖动范围时，不需要再改 `ReconnectHandler` 源码。

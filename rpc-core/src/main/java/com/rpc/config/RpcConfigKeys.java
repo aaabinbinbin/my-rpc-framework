@@ -29,6 +29,10 @@ public final class RpcConfigKeys {
     public static final String CLIENT_RECONNECT_MAX_RETRY_TIMES = "rpc.client.reconnect.maxRetryTimes";
     public static final String CLIENT_RECONNECT_INITIAL_DELAY = "rpc.client.reconnect.initialDelaySeconds";
     public static final String CLIENT_RECONNECT_MAX_DELAY = "rpc.client.reconnect.maxDelaySeconds";
+    public static final String CLIENT_RECONNECT_ENABLED = "rpc.client.reconnect.enabled";
+    public static final String CLIENT_RECONNECT_JITTER_ENABLED = "rpc.client.reconnect.jitter.enabled";
+    public static final String CLIENT_RECONNECT_JITTER_MIN = "rpc.client.reconnect.jitter.minSeconds";
+    public static final String CLIENT_RECONNECT_JITTER_MAX = "rpc.client.reconnect.jitter.maxSeconds";
     public static final String CLIENT_ENABLE_DEGRADATION = "rpc.client.enableDegradation";
     public static final String CLIENT_DEGRADATION_FAILURE_THRESHOLD = "rpc.client.degradationFailureThreshold";
 
