@@ -1,8 +1,11 @@
 package com.rpc.proxy;
 
-import com.rpc.transport.netty.client.RpcNettyClient;
+import com.rpc.config.RpcClientConfig;
 import com.rpc.proxy.impl.RpcInvocationHandler;
 import com.rpc.proxy.impl.RpcMethodInterceptor;
+import com.rpc.registry.ServiceRegistry;
+import com.rpc.transport.RpcTransport;
+import com.rpc.transport.factory.RpcTransportFactory;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.cglib.proxy.Enhancer;
 
@@ -13,9 +16,14 @@ import java.lang.reflect.Proxy;
  */
 @Slf4j
 public class RpcProxyFactory {
-    private static RpcNettyClient client;
-    public static void initClient(RpcNettyClient rpcClient) {
+    private static RpcTransport client;
+
+    public static void initClient(RpcTransport rpcClient) {
         client = rpcClient;
+    }
+
+    public static void initClient(RpcClientConfig config, ServiceRegistry serviceRegistry) {
+        client = RpcTransportFactory.create(config, serviceRegistry);
     }
 
     /**

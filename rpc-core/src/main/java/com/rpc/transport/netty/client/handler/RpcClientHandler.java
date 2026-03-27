@@ -1,7 +1,6 @@
 package com.rpc.transport.netty.client.handler;
 
 import com.rpc.protocol.RpcHeartbeat;
-import com.rpc.transport.netty.client.RpcNettyClient;
 import com.rpc.transport.netty.client.manager.RequestManager;
 import com.rpc.protocol.RpcMessage;
 import com.rpc.protocol.RpcMessageType;

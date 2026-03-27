@@ -1,43 +1,40 @@
 package com.rpc.transport.netty.server.config;
 
-import lombok.Builder;
+import com.rpc.transport.TransportType;
 import lombok.Data;
 
 /**
- * RPC 服务端配置
+ * RPC server config.
  */
 @Data
 public class RpcServerConfig {
-    /** 服务器ip地址 */
+    private TransportType transportType = TransportType.NETTY;
+
     private String host;
 
-    /** 服务器端口 */
     private int port = 8080;
 
-    /** Boss 线程数 */
     private int bossThreads = 1;
 
-    /** Worker 线程数 */
     private int workerThreads = Runtime.getRuntime().availableProcessors() * 2;
 
-    /** 序列化器类型 */
-    private byte serializerType = 1;  // 默认 Kryo
+    private byte serializerType = 1;
 
-    /** 优雅关闭超时时间（秒） */
     private int shutdownTimeout = 10;
 
-    /** 读空闲超时时间（毫秒），用于检测客户端是否存活 */
-    private int readerIdleTime = 30000; // 30秒
+    private int readerIdleTime = 30000;
 
-    /** 写空闲超时时间（毫秒），默认不检测 */
     private int writerIdleTime = 0;
 
-    /** 全空闲超时时间（毫秒），默认不检测 */
     private int allIdleTime = 0;
 
-    // Builder 模式
     public static RpcServerConfig custom() {
         return new RpcServerConfig();
+    }
+
+    public RpcServerConfig transportType(TransportType transportType) {
+        this.transportType = transportType;
+        return this;
     }
 
     public RpcServerConfig host(String host) {
