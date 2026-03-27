@@ -1,5 +1,7 @@
+protobuf=com.rpc.serialize.impl.ProtobufSerializer
 kryo=com.rpc.serialize.impl.KryoSerializer
 json=com.rpc.serialize.impl.JsonSerializer
 hessian=com.rpc.serialize.impl.HessianSerializer
 java=com.rpc.serialize.impl.JavaSerializer
+default=com.rpc.serialize.impl.ProtobufSerializer
 defalut=com.rpc.serialize.impl.KryoSerializer

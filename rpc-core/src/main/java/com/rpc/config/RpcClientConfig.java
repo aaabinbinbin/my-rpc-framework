@@ -34,7 +34,7 @@ public class RpcClientConfig {
     private LoadBalancer loadBalancer = LoadBalancerFactory.getDefaultLoadBalancer();
 
     @Builder.Default
-    private String serializerName = "kryo";
+    private String serializerName = "protobuf";
 
     @Builder.Default
     private int retryTimes = 3;

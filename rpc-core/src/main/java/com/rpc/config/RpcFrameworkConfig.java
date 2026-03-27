@@ -7,7 +7,7 @@ import lombok.Data;
 @Data
 public class RpcFrameworkConfig {
     private TransportType transportType = TransportType.NETTY;
-    private String serializer = "kryo";
+    private String serializer = "protobuf";
     private String loadBalancer = "random";
 
     private RegistryType registryType = RegistryType.ZOOKEEPER;

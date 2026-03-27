@@ -5,7 +5,7 @@ import com.rpc.spi.SPI;
 /**
  * 序列化接口
  */
-@SPI("kryo")
+@SPI("protobuf")
 public interface Serializer {
     /**
      * 序列化
