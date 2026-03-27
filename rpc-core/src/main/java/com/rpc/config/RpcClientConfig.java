@@ -3,13 +3,12 @@ package com.rpc.config;
 import com.rpc.faulttolerance.DegradationPolicy;
 import com.rpc.loadbalance.LoadBalancer;
 import com.rpc.loadbalance.factory.LoadBalancerFactory;
+import com.rpc.serialize.Serializer;
+import com.rpc.serialize.factory.SerializerFactory;
 import com.rpc.transport.TransportType;
 import lombok.Builder;
 import lombok.Data;
 
-/**
- * RPC client config.
- */
 @Data
 @Builder
 public class RpcClientConfig {
@@ -35,7 +34,19 @@ public class RpcClientConfig {
     private LoadBalancer loadBalancer = LoadBalancerFactory.getDefaultLoadBalancer();
 
     @Builder.Default
+    private String serializerName = "kryo";
+
+    @Builder.Default
     private int retryTimes = 3;
+
+    @Builder.Default
+    private int reconnectMaxRetryTimes = 5;
+
+    @Builder.Default
+    private int reconnectInitialDelaySeconds = 2;
+
+    @Builder.Default
+    private int reconnectMaxDelaySeconds = 60;
 
     @Builder.Default
     private DegradationPolicy degradationPolicy = null;
@@ -48,5 +59,9 @@ public class RpcClientConfig {
 
     public static RpcClientConfig custom() {
         return RpcClientConfig.builder().build();
+    }
+
+    public Serializer resolveSerializer() {
+        return SerializerFactory.getSerializer(serializerName);
     }
 }

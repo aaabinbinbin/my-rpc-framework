@@ -11,11 +11,11 @@ import java.lang.reflect.Method;
 @Slf4j
 public class RpcInvocationHandler implements InvocationHandler {
     private final Class<?> serviceClass;
-    private static RpcTransport client;
+    private final RpcTransport client;
 
     public RpcInvocationHandler(Class<?> serviceClass, RpcTransport client) {
         this.serviceClass = serviceClass;
-        RpcInvocationHandler.client = client;
+        this.client = client;
     }
 
     @Override

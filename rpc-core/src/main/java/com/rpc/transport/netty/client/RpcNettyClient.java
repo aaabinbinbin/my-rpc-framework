@@ -14,7 +14,6 @@ import com.rpc.protocol.RpcMessageType;
 import com.rpc.protocol.RpcRequest;
 import com.rpc.protocol.RpcResponse;
 import com.rpc.registry.ServiceRegistry;
-import com.rpc.serialize.factory.SerializerFactory;
 import com.rpc.transport.RpcTransport;
 import com.rpc.transport.netty.client.connection.RpcConnection;
 import com.rpc.transport.netty.client.connection.pool.ConnectionPool;
@@ -39,24 +38,26 @@ import lombok.extern.slf4j.Slf4j;
 import java.net.InetSocketAddress;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * RPC Netty client.
- */
 @Slf4j
 public class RpcNettyClient implements RpcTransport {
+    private final AtomicBoolean closing = new AtomicBoolean(false);
+
     private EventLoopGroup eventLoopGroup;
     private ConnectionPool connectionPool;
     private RequestManager requestManager;
     private final ServiceRegistry serviceRegistry;
     private int readTimeout = 10000;
     private final RpcClientInvocationExecutor invocationExecutor;
+    private final byte serializerType;
 
     public RpcNettyClient(RpcClientConfig config, ServiceRegistry serviceRegistry) {
         this.serviceRegistry = serviceRegistry;
         this.eventLoopGroup = new NioEventLoopGroup();
         this.requestManager = new RequestManager();
         this.readTimeout = config.getReadTimeout();
+        this.serializerType = (byte) config.resolveSerializer().getSerializerType();
 
         LoadBalancer loadBalancer = config.getLoadBalancer();
         CircuitBreakerManager circuitBreakerManager = CircuitBreakerManager.getInstance();
@@ -75,12 +76,6 @@ public class RpcNettyClient implements RpcTransport {
                 degradationFailureThreshold
         );
 
-        if (enableDegradation) {
-            log.info("已启用降级策略: policy={}, threshold={}",
-                    degradationPolicy != null ? degradationPolicy.getClass().getSimpleName() : "null",
-                    degradationFailureThreshold);
-        }
-
         Bootstrap bootstrap = new Bootstrap();
         bootstrap.group(eventLoopGroup)
                 .channel(NioSocketChannel.class)
@@ -92,22 +87,30 @@ public class RpcNettyClient implements RpcTransport {
                     protected void initChannel(SocketChannel ch) {
                         ch.pipeline()
                                 .addLast("idleStateHandler",
-                                        new IdleStateHandler(0, config.getHeartbeatInterval(), 0, TimeUnit.SECONDS))
+                                        new IdleStateHandler(0, config.getHeartbeatInterval(), 0, TimeUnit.MILLISECONDS))
                                 .addLast("decoder", new RpcProtocolDecoder())
                                 .addLast("encoder", new RpcProtocolEncoder())
                                 .addLast("heartbeatHandler", new HeartbeatHandler())
-                                .addLast("reconnectHandler", new ReconnectHandler(connectionPool))
+                                .addLast("reconnectHandler", new ReconnectHandler(connectionPool, closing, config))
                                 .addLast("handler", new RpcClientHandler(requestManager));
                     }
                 });
 
         this.connectionPool = new ConnectionPool(bootstrap);
+
+        if (enableDegradation) {
+            log.info("已启用降级策略: policy={}, threshold={}",
+                    degradationPolicy != null ? degradationPolicy.getClass().getSimpleName() : "null",
+                    degradationFailureThreshold);
+        }
     }
 
+    @Override
     public RpcResponse sendRequest(RpcRequest rpcRequest) throws Exception {
         return invocationExecutor.execute(rpcRequest, this::sendRequestToAddress);
     }
 
+    @Override
     public void sendRequestAsync(RpcRequest rpcRequest, long requestId) throws Exception {
         rpcRequest.setRequestId(String.valueOf(requestId));
         InetSocketAddress selectedAddress = invocationExecutor.resolveServiceAddress(rpcRequest.getServiceName());
@@ -123,7 +126,6 @@ public class RpcNettyClient implements RpcTransport {
         RpcMessage message = buildRequestMessage(rpcRequest, requestId);
 
         connection.getChannel().writeAndFlush(message).sync();
-        log.debug("请求已发送: {}.{}", rpcRequest.getServiceName(), rpcRequest.getMethodName());
         return future.get(readTimeout, TimeUnit.MILLISECONDS);
     }
 
@@ -135,9 +137,7 @@ public class RpcNettyClient implements RpcTransport {
         connection.getChannel().writeAndFlush(message).addListener(future -> {
             if (!future.isSuccess()) {
                 requestManager.failRequest(requestId, future.cause());
-                log.error("发送请求失败: requestId={}", requestId, future.cause());
-            } else {
-                log.debug("请求发送成功: requestId={}", requestId);
+                log.error("发送请求失败 requestId={}", requestId, future.cause());
             }
         });
     }
@@ -146,7 +146,7 @@ public class RpcNettyClient implements RpcTransport {
         RpcHeader header = RpcHeader.builder()
                 .magicNumber(RpcHeader.MAGIC_NUMBER)
                 .version(RpcHeader.VERSION)
-                .serializerType((byte) SerializerFactory.DEFAULT_SERIALIZER.getSerializerType())
+                .serializerType(serializerType)
                 .messageType(RpcMessageType.REQUEST.getCode())
                 .reserved((byte) 0)
                 .requestId(requestId)
@@ -162,7 +162,12 @@ public class RpcNettyClient implements RpcTransport {
         return System.nanoTime();
     }
 
+    @Override
     public void close() {
+        if (!closing.compareAndSet(false, true)) {
+            return;
+        }
+
         log.info("正在关闭客户端...");
 
         if (connectionPool != null) {

@@ -12,11 +12,11 @@ import java.lang.reflect.Method;
 @Slf4j
 public class RpcMethodInterceptor implements MethodInterceptor {
     private final Class<?> serviceClass;
-    private static RpcTransport client;
+    private final RpcTransport client;
 
     public RpcMethodInterceptor(Class<?> serviceClass, RpcTransport client) {
         this.serviceClass = serviceClass;
-        RpcMethodInterceptor.client = client;
+        this.client = client;
     }
 
     @Override

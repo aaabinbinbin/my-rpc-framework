@@ -61,4 +61,24 @@ public class RpcServerConfig {
         this.serializerType = serializerType;
         return this;
     }
+
+    public RpcServerConfig shutdownTimeout(int shutdownTimeout) {
+        this.shutdownTimeout = shutdownTimeout;
+        return this;
+    }
+
+    public RpcServerConfig readerIdleTime(int readerIdleTime) {
+        this.readerIdleTime = readerIdleTime;
+        return this;
+    }
+
+    public RpcServerConfig writerIdleTime(int writerIdleTime) {
+        this.writerIdleTime = writerIdleTime;
+        return this;
+    }
+
+    public RpcServerConfig allIdleTime(int allIdleTime) {
+        this.allIdleTime = allIdleTime;
+        return this;
+    }
 }

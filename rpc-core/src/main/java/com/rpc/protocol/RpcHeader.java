@@ -5,45 +5,32 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Rpc 协议消息头
- * 固定 24 字节（包含 CRC32 校验和）
- */
 @Data
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
 public class RpcHeader {
-    /** 魔数，4 字节 */
+    @Builder.Default
     private int magicNumber = 0x12345678;
 
-    /** 版本号，1 字节 */
+    @Builder.Default
     private byte version = 1;
 
-    /** 序列化器类型，1 字节 */
     private byte serializerType;
 
-    /** 消息类型，1 字节 */
     private byte messageType;
 
-    /** 保留字段，1 字节 */
     private byte reserved;
 
-    /** 请求 ID，8 字节 */
     private long requestId;
 
-    /** 消息体长度，4 字节 */
     private int bodyLength;
 
-    /** 校验和，4 字节（放在消息头末尾）*/
     private long checksum;
 
-    /** 消息头总长度：24 字节 */
     public static final int HEADER_LENGTH = 24;
 
-    /** 魔数常量 */
     public static final int MAGIC_NUMBER = 0x12345678;
 
-    /** 协议版本 */
     public static final byte VERSION = 1;
 }

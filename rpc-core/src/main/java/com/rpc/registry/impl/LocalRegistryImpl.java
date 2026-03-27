@@ -1,9 +1,8 @@
 package com.rpc.registry.impl;
 
+import com.rpc.metrics.ServiceMetricsManager;
 import com.rpc.registry.LocalRegistry;
 import com.rpc.registry.ServiceRegistry;
-import com.rpc.transport.netty.server.statistics.ServiceStatistics;
-import com.rpc.transport.netty.server.statistics.StatisticsManager;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
@@ -62,8 +61,7 @@ public class LocalRegistryImpl implements LocalRegistry {
         
         // 3. 注册统计信息（即使失败也不影响主流程）
         try {
-            ServiceStatistics statistics = new ServiceStatistics(serviceName);
-            StatisticsManager.getInstance().register(serviceName);
+            ServiceMetricsManager.getInstance().register(serviceName);
         } catch (Exception e) {
             log.warn("统计信息注册失败（不影响服务）: {}", serviceName, e);
         }
@@ -101,7 +99,7 @@ public class LocalRegistryImpl implements LocalRegistry {
         
         // 3. 移除统计信息（即使失败也不影响主流程）
         try {
-            StatisticsManager.getInstance().remove(serviceName);
+            ServiceMetricsManager.getInstance().remove(serviceName);
         } catch (Exception e) {
             log.warn("统计信息移除失败（不影响服务）: {}", serviceName, e);
         }

@@ -9,24 +9,27 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 
 public final class SocketMessageCodec {
-    private static final Serializer SERIALIZER = SerializerFactory.DEFAULT_SERIALIZER;
-
     private SocketMessageCodec() {
     }
 
     public static void writeMessage(DataOutputStream outputStream, RpcMessage message) throws IOException {
-        byte[] payload = SERIALIZER.serialize(message);
+        byte serializerType = message.getHeader().getSerializerType();
+        Serializer serializer = SerializerFactory.getSerializer(serializerType);
+        byte[] payload = serializer.serialize(message);
+        outputStream.writeByte(serializerType);
         outputStream.writeInt(payload.length);
         outputStream.write(payload);
         outputStream.flush();
     }
 
     public static RpcMessage readMessage(DataInputStream inputStream) throws IOException {
+        byte serializerType = inputStream.readByte();
+        Serializer serializer = SerializerFactory.getSerializer(serializerType);
         int length = inputStream.readInt();
         byte[] payload = inputStream.readNBytes(length);
         if (payload.length != length) {
             throw new IOException("Socket message truncated");
         }
-        return SERIALIZER.deserialize(payload, RpcMessage.class);
+        return serializer.deserialize(payload, RpcMessage.class);
     }
 }

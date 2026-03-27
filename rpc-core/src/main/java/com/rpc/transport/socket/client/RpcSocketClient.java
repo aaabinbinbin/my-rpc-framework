@@ -14,7 +14,6 @@ import com.rpc.protocol.RpcMessageType;
 import com.rpc.protocol.RpcRequest;
 import com.rpc.protocol.RpcResponse;
 import com.rpc.registry.ServiceRegistry;
-import com.rpc.serialize.factory.SerializerFactory;
 import com.rpc.transport.RpcTransport;
 import com.rpc.transport.netty.client.invocation.RpcClientInvocationExecutor;
 import com.rpc.transport.netty.client.invocation.RpcServiceResolver;
@@ -33,11 +32,13 @@ public class RpcSocketClient implements RpcTransport {
     private final int connectTimeout;
     private final int readTimeout;
     private final RpcClientInvocationExecutor invocationExecutor;
+    private final byte serializerType;
 
     public RpcSocketClient(RpcClientConfig config, ServiceRegistry serviceRegistry) {
         this.serviceRegistry = serviceRegistry;
         this.connectTimeout = config.getConnectTimeout();
         this.readTimeout = config.getReadTimeout();
+        this.serializerType = (byte) config.resolveSerializer().getSerializerType();
 
         LoadBalancer loadBalancer = config.getLoadBalancer();
         CircuitBreakerManager circuitBreakerManager = CircuitBreakerManager.getInstance();
@@ -101,7 +102,7 @@ public class RpcSocketClient implements RpcTransport {
         RpcHeader header = RpcHeader.builder()
                 .magicNumber(RpcHeader.MAGIC_NUMBER)
                 .version(RpcHeader.VERSION)
-                .serializerType((byte) SerializerFactory.DEFAULT_SERIALIZER.getSerializerType())
+                .serializerType(serializerType)
                 .messageType(RpcMessageType.REQUEST.getCode())
                 .reserved((byte) 0)
                 .requestId(requestId)
