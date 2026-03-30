@@ -13,6 +13,10 @@
     <file url="file://$PROJECT_DIR$/rpc-core/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/rpc-server/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/rpc-server/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/rpc-spring-boot-starter/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/rpc-spring-boot-starter/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/rpc-spring/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/rpc-spring/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/resources" charset="UTF-8" />
   </component>

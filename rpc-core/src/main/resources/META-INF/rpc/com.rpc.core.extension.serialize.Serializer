@@ -1,0 +1,8 @@
+protobuf=com.rpc.core.extension.serialize.impl.ProtobufSerializer
+kryo=com.rpc.core.extension.serialize.impl.KryoSerializer
+json=com.rpc.core.extension.serialize.impl.JsonSerializer
+hessian=com.rpc.core.extension.serialize.impl.HessianSerializer
+java=com.rpc.core.extension.serialize.impl.JavaSerializer
+default=com.rpc.core.extension.serialize.impl.ProtobufSerializer
+defalut=com.rpc.core.extension.serialize.impl.KryoSerializer
+

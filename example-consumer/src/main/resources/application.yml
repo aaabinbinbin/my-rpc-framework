@@ -1,0 +1,17 @@
+server:
+  port: 18081
+
+rpc:
+  spring:
+    enabled: true
+    scan-packages: com.rpc
+  transport: netty
+  serializer: protobuf
+  registry:
+    type: zookeeper
+    address: ${RPC_REGISTRY_ADDRESS:8.134.204.101:2181}
+    timeout: 5000
+  client:
+    connect-timeout: 5000
+    read-timeout: 10000
+    cluster: failover

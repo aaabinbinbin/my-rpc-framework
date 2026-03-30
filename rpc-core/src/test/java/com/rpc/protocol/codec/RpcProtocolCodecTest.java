@@ -1,10 +1,10 @@
-package com.rpc.protocol.codec;
+package com.rpc.core.protocol.codec;
 
-import com.rpc.codec.RpcProtocolDecoder;
-import com.rpc.codec.RpcProtocolEncoder;
-import com.rpc.protocol.RpcHeader;
-import com.rpc.protocol.RpcMessage;
-import com.rpc.protocol.RpcRequest;
+import com.rpc.core.protocol.codec.RpcProtocolDecoder;
+import com.rpc.core.protocol.codec.RpcProtocolEncoder;
+import com.rpc.core.protocol.RpcHeader;
+import com.rpc.core.protocol.RpcMessage;
+import com.rpc.core.protocol.RpcRequest;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.embedded.EmbeddedChannel;
 import lombok.extern.slf4j.Slf4j;
@@ -19,7 +19,7 @@ import static org.junit.Assert.*;
 public class RpcProtocolCodecTest {
     @Test
     public void testEncodeDecode() {
-        // 1. 创建测试数据
+        // 1. 鍒涘缓娴嬭瘯鏁版嵁
         RpcRequest request = new RpcRequest();
         request.setRequestId(UUID.randomUUID().toString());
         request.setServiceName("com.rpc.HelloService");
@@ -27,11 +27,11 @@ public class RpcProtocolCodecTest {
         request.setParameterTypes(new Class[]{String.class});
         request.setParameters(new Object[]{"world"});
 
-        // 2. 创建消息
+        // 2. 鍒涘缓娑堟伅
         RpcHeader header = RpcHeader.builder()
                 .magicNumber(0x12345678)
                 .version((byte)1)
-                .messageType((byte) 1)      // 请求
+                .messageType((byte) 1)      // 璇锋眰
                 .serializerType((byte) 1)  // Kryo
                 .requestId(new Random().nextLong())
                 .build();
@@ -39,27 +39,27 @@ public class RpcProtocolCodecTest {
         RpcMessage message = new RpcMessage();
         message.setHeader(header);
         message.setBody(request);
-        log.info("编码前的请求: {}", message);
+        log.info("缂栫爜鍓嶇殑璇锋眰: {}", message);
 
-        // 3. 创建编码通道
+        // 3. 鍒涘缓缂栫爜閫氶亾
         EmbeddedChannel encoderChannel = new EmbeddedChannel(
                 new RpcProtocolEncoder()
         );
 
-        // 4. 编码
+        // 4. 缂栫爜
         assertTrue(encoderChannel.writeOutbound(message));
         ByteBuf encoded = (ByteBuf) encoderChannel.readOutbound();
 
-        // 5. 创建解码通道
+        // 5. 鍒涘缓瑙ｇ爜閫氶亾
         EmbeddedChannel decoderChannel = new EmbeddedChannel(
                 new RpcProtocolDecoder()
         );
 
-        // 6. 解码（注意：需要保留引用，因为 writeInbound 会释放）
+        // 6. 瑙ｇ爜锛堟敞鎰忥細闇€瑕佷繚鐣欏紩鐢紝鍥犱负 writeInbound 浼氶噴鏀撅級
         assertTrue(decoderChannel.writeInbound(encoded.retainedDuplicate()));
         RpcMessage decoded = (RpcMessage) decoderChannel.readInbound();
 
-        // 7. 验证
+        // 7. 楠岃瘉
         assertNotNull(decoded);
         assertEquals(0x12345678, decoded.getHeader().getMagicNumber());
         assertEquals(1, decoded.getHeader().getMessageType());
@@ -67,10 +67,11 @@ public class RpcProtocolCodecTest {
         RpcRequest decodedRequest = (RpcRequest) decoded.getBody();
         assertEquals("com.rpc.HelloService", decodedRequest.getServiceName());
         assertEquals("sayHello", decodedRequest.getMethodName());
-        log.info("解码后的请求: {}", decodedRequest);
+        log.info("瑙ｇ爜鍚庣殑璇锋眰: {}", decodedRequest);
 
-        // 8. 关闭通道
+        // 8. 鍏抽棴閫氶亾
         encoderChannel.finish();
         decoderChannel.finish();
     }
 }
+

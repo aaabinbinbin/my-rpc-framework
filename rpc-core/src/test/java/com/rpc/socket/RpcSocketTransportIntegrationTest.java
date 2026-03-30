@@ -1,14 +1,14 @@
 package com.rpc.socket;
 
 import com.rpc.HelloService;
-import com.rpc.config.RpcClientConfig;
-import com.rpc.proxy.RpcProxyFactory;
-import com.rpc.server.HelloServiceImpl;
+import com.rpc.core.config.RpcClientConfig;
+import com.rpc.core.invoke.proxy.RpcProxyFactory;
+import com.rpc.core.runtime.server.HelloServiceImpl;
 import com.rpc.support.InMemoryServiceRegistry;
-import com.rpc.transport.RpcServer;
-import com.rpc.transport.TransportType;
-import com.rpc.transport.factory.RpcServerFactory;
-import com.rpc.transport.netty.server.config.RpcServerConfig;
+import com.rpc.core.transport.RpcServer;
+import com.rpc.core.transport.TransportType;
+import com.rpc.core.transport.factory.RpcServerFactory;
+import com.rpc.core.transport.netty.server.config.RpcServerConfig;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -70,9 +70,9 @@ public class RpcSocketTransportIntegrationTest {
                 .connectTimeout(2000)
                 .readTimeout(3000)
                 .build();
-        RpcProxyFactory.initClient(clientConfig, registry);
+        RpcProxyFactory proxyFactory = RpcProxyFactory.create(clientConfig, registry);
 
-        HelloService helloService = RpcProxyFactory.createProxy(HelloService.class);
+        HelloService helloService = proxyFactory.createProxyInstance(HelloService.class);
 
         String hello = helloService.sayHello("socket");
         Integer sum = helloService.add(7, 8);
@@ -87,3 +87,4 @@ public class RpcSocketTransportIntegrationTest {
         }
     }
 }
+

@@ -1,5 +1,8 @@
 package com.rpc;
 
+import com.rpc.core.api.annotation.RpcService;
+
+@RpcService(HelloService.class)
 public class HelloServiceImpl implements HelloService {
     @Override
     public String sayHello(String name) {
@@ -16,3 +19,4 @@ public class HelloServiceImpl implements HelloService {
         return a + b;
     }
 }
+

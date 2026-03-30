@@ -1,11 +1,11 @@
 package com.rpc;
 
-import com.rpc.bootstrap.RpcProviderBootstrap;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+@SpringBootApplication
 public class ExampleProviderApplication {
-    public static void main(String[] args) throws Exception {
-        RpcProviderBootstrap.fromConfig()
-                .registerService(HelloService.class, new HelloServiceImpl())
-                .start();
+    public static void main(String[] args) {
+        SpringApplication.run(ExampleProviderApplication.class, args);
     }
 }

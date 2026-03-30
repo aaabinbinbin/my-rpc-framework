@@ -12,8 +12,8 @@
 
     <modules>
         <module>rpc-core</module>
-        <module>rpc-server</module>
-        <module>rpc-client</module>
+        <module>rpc-spring</module>
+        <module>rpc-spring-boot-starter</module>
         <module>example-api</module>
         <module>example-provider</module>
         <module>example-consumer</module>
@@ -23,8 +23,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
-
-        <!-- 依赖版本管理 -->
         <netty.version>4.1.94.Final</netty.version>
         <zk.version>3.8.4</zk.version>
         <kryo.version>5.5.0</kryo.version>
@@ -35,25 +33,22 @@
         <cglib.version>3.3.0</cglib.version>
         <jackson.version>2.15.2</jackson.version>
         <hessian.version>4.0.66</hessian.version>
+        <spring.version>5.3.39</spring.version>
+        <spring.boot.version>2.7.18</spring.boot.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- Netty -->
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-all</artifactId>
                 <version>${netty.version}</version>
             </dependency>
-
-            <!-- ZooKeeper -->
             <dependency>
                 <groupId>org.apache.zookeeper</groupId>
                 <artifactId>zookeeper</artifactId>
                 <version>${zk.version}</version>
             </dependency>
-
-            <!-- Kryo 序列化 -->
             <dependency>
                 <groupId>com.esotericsoftware</groupId>
                 <artifactId>kryo</artifactId>
@@ -69,36 +64,26 @@
                 <artifactId>protostuff-runtime</artifactId>
                 <version>${protostuff.version}</version>
             </dependency>
-
-            <!-- Hessian 序列化 -->
             <dependency>
                 <groupId>com.caucho</groupId>
                 <artifactId>hessian</artifactId>
                 <version>${hessian.version}</version>
             </dependency>
-
-            <!-- Jackson JSON 序列化 -->
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
                 <version>${jackson.version}</version>
             </dependency>
-
-            <!-- CGLib  -->
             <dependency>
                 <groupId>cglib</groupId>
                 <artifactId>cglib</artifactId>
                 <version>${cglib.version}</version>
             </dependency>
-
-            <!-- Lombok 简化代码 -->
             <dependency>
                 <groupId>org.projectlombok</groupId>
                 <artifactId>lombok</artifactId>
                 <version>${lombok.version}</version>
             </dependency>
-
-            <!-- 日志 -->
             <dependency>
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
@@ -109,8 +94,26 @@
                 <artifactId>logback-classic</artifactId>
                 <version>${logback.version}</version>
             </dependency>
-
-            <!-- 测试 -->
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-context</artifactId>
+                <version>${spring.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-autoconfigure</artifactId>
+                <version>${spring.boot.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter</artifactId>
+                <version>${spring.boot.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-test</artifactId>
+                <version>${spring.boot.version}</version>
+            </dependency>
             <dependency>
                 <groupId>junit</groupId>
                 <artifactId>junit</artifactId>
