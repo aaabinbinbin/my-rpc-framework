@@ -1,134 +1,100 @@
-# doc 阅读说明
+﻿# doc 阅读说明
 
-当前文档只分成 3 个文件夹，避免层级太深影响查找：
+这套文档现在按“第一次接触这个项目的人”来组织。
 
-## 1. `01-overview`
+如果你现在还是小白，不要从源码细节开始啃。建议按下面顺序读。
 
-这一组建议先看，负责建立整体认识。
+## 1. 第一次看项目，先读哪几篇
 
 推荐顺序：
 1. [01-rpc-roadmap.md](./01-overview/01-rpc-roadmap.md)
-2. [02-project-structure-guide.md](./01-overview/02-project-structure-guide.md)
+2. [05-project-visual-guide.md](./01-overview/05-project-visual-guide.md)
+3. [02-project-structure-guide.md](./01-overview/02-project-structure-guide.md)
+4. [03-current-usage-guide.md](./01-overview/03-current-usage-guide.md)
+5. [09-helloService-call-trace.md](./02-architecture/09-helloService-call-trace.md)
+
+读完这 5 篇，你至少会弄清楚：
+1. 这个项目到底是干什么的
+2. 目录为什么这样分
+3. provider 和 consumer 是什么
+4. 一次 RPC 调用到底怎么跑
+
+## 2. 文档分组怎么理解
+
+### 2.1 `01-overview`
+
+这一组负责“先把项目看懂”。
+
+适合你还不熟悉 RPC 的时候看，重点是：
+1. 先认识项目整体
+2. 先知道模块是干什么的
+3. 先知道怎么跑起来
+
+### 2.2 `02-architecture`
+
+这一组负责“再把核心原理讲明白”。
+
+适合你已经知道项目结构后，继续往下理解：
+1. consumer 怎么发请求
+2. provider 怎么处理请求
+3. 配置、扩展、协议、传输、容错分别做什么
+
+### 2.3 `03-interview`
+
+这一组负责“把项目讲给别人听”。
+
+适合你已经基本理解项目后，再去准备：
+1. 简历怎么写
+2. 面试里怎么介绍
+3. 常见追问怎么答
+
+## 3. 对小白最友好的阅读路线
+
+### 第一遍：只看整体，不抠源码
+
+1. [01-rpc-roadmap.md](./01-overview/01-rpc-roadmap.md)
+2. [05-project-visual-guide.md](./01-overview/05-project-visual-guide.md)
 3. [03-current-usage-guide.md](./01-overview/03-current-usage-guide.md)
-4. [04-rpc-project-guide-v1.md](./01-overview/04-rpc-project-guide-v1.md)
 
-适合场景：
-1. 第一次看这个项目
-2. 先建立整体结构认识
-3. 先知道当前项目做到哪一步
+### 第二遍：只看一条主链路
 
-## 2. `02-architecture`
-
-这一组按专题拆开讲技术细节。
-
-推荐顺序：
-1. [01-rpc-consumer-call-chain.md](./02-architecture/01-rpc-consumer-call-chain.md)
-2. [02-rpc-provider-call-chain.md](./02-architecture/02-rpc-provider-call-chain.md)
-3. [03-rpc-config-system.md](./02-architecture/03-rpc-config-system.md)
-4. [04-rpc-spi-and-extension.md](./02-architecture/04-rpc-spi-and-extension.md)
-5. [05-rpc-resilience-design.md](./02-architecture/05-rpc-resilience-design.md)
-6. [06-rpc-spring-integration.md](./02-architecture/06-rpc-spring-integration.md)
-7. [07-rpc-protocol-design.md](./02-architecture/07-rpc-protocol-design.md)
-8. [08-rpc-transport-design.md](./02-architecture/08-rpc-transport-design.md)
-
-适合场景：
-1. 精读源码
-2. 理解调用链和设计取舍
-3. 为后续继续改造做准备
-
-## 3. `03-interview`
-
-这一组是面试和展示材料。
-
-推荐顺序：
-1. [01-rpc-resume-version.md](./03-interview/01-rpc-resume-version.md)
-2. [02-rpc-project-highlights-final.md](./03-interview/02-rpc-project-highlights-final.md)
-3. [03-rpc-interview-kit.md](./03-interview/03-rpc-interview-kit.md)
-4. [04-rpc-interview-qa-lite.md](./03-interview/04-rpc-interview-qa-lite.md)
-5. [05-rpc-interview-topic-map.md](./03-interview/05-rpc-interview-topic-map.md)
-
-适合场景：
-1. 写简历
-2. 面试前准备
-3. 快速复盘项目亮点和追问点
-
-## 4. 最推荐的阅读路线
-
-如果你现在是第一次系统地看这个项目，建议按下面这条路线：
-
-1. 先看 `01-overview`
-2. 再看 `02-architecture`
-3. 最后看 `03-interview`
-
-这样顺序最自然：
-1. 先知道项目整体是什么
-2. 再理解技术细节
-3. 最后把它整理成面试表达
-
-## 5. 按目标选择阅读路线
-
-### 5.1 想快速看懂项目全貌
-
-适合场景：
-1. 第一次系统看这个项目
-2. 先建立整体认识
-3. 不急着立刻精读源码
-
-推荐顺序：
-1. [01-rpc-roadmap.md](./01-overview/01-rpc-roadmap.md)
-2. [02-project-structure-guide.md](./01-overview/02-project-structure-guide.md)
-3. [04-rpc-project-guide-v1.md](./01-overview/04-rpc-project-guide-v1.md)
-4. [01-rpc-consumer-call-chain.md](./02-architecture/01-rpc-consumer-call-chain.md)
-5. [02-rpc-provider-call-chain.md](./02-architecture/02-rpc-provider-call-chain.md)
-
-读完这 5 份，基本就能知道：
-1. 项目做到哪一步
-2. 分层结构是什么
-3. consumer（消费端）/provider（提供端）主链路怎么走
-
-### 5.2 想准备面试和项目介绍
-
-适合场景：
-1. 写简历
-2. 面试前快速复盘
-3. 准备项目介绍和追问
-
-推荐顺序：
-1. [01-rpc-resume-version.md](./03-interview/01-rpc-resume-version.md)
-2. [02-rpc-project-highlights-final.md](./03-interview/02-rpc-project-highlights-final.md)
-3. [03-rpc-interview-kit.md](./03-interview/03-rpc-interview-kit.md)
-4. [04-rpc-interview-qa-lite.md](./03-interview/04-rpc-interview-qa-lite.md)
-5. [05-rpc-interview-topic-map.md](./03-interview/05-rpc-interview-topic-map.md)
-
-如果时间特别少，至少先看前 3 份。
-
-### 5.3 想继续改代码或继续重构
-
-适合场景：
-1. 继续做功能
-2. 继续做结构优化
-3. 想先明确代码落点
-
-推荐顺序：
-1. [02-project-structure-guide.md](./01-overview/02-project-structure-guide.md)
-2. [03-rpc-config-system.md](./02-architecture/03-rpc-config-system.md)
-3. [04-rpc-spi-and-extension.md](./02-architecture/04-rpc-spi-and-extension.md)
-4. [05-rpc-resilience-design.md](./02-architecture/05-rpc-resilience-design.md)
-5. [07-rpc-protocol-design.md](./02-architecture/07-rpc-protocol-design.md)
-6. [08-rpc-transport-design.md](./02-architecture/08-rpc-transport-design.md)
-
-这条路线更适合带着“我要改哪里”的问题去读。
-
-## 6. 如果时间很少
-
-如果你现在时间非常少，只看下面这 4 份就够：
-
-1. [04-rpc-project-guide-v1.md](./01-overview/04-rpc-project-guide-v1.md)
+1. [09-helloService-call-trace.md](./02-architecture/09-helloService-call-trace.md)
 2. [01-rpc-consumer-call-chain.md](./02-architecture/01-rpc-consumer-call-chain.md)
 3. [02-rpc-provider-call-chain.md](./02-architecture/02-rpc-provider-call-chain.md)
-4. [02-rpc-project-highlights-final.md](./03-interview/02-rpc-project-highlights-final.md)
 
-这样至少能同时覆盖：
-1. 整体结构
-2. 主链路
-3. 项目亮点表达
+### 第三遍：再看专题
+
+1. [03-rpc-config-system.md](./02-architecture/03-rpc-config-system.md)
+2. [06-rpc-spring-integration.md](./02-architecture/06-rpc-spring-integration.md)
+3. [05-rpc-resilience-design.md](./02-architecture/05-rpc-resilience-design.md)
+4. [07-rpc-protocol-design.md](./02-architecture/07-rpc-protocol-design.md)
+5. [08-rpc-transport-design.md](./02-architecture/08-rpc-transport-design.md)
+6. [04-rpc-spi-and-extension.md](./02-architecture/04-rpc-spi-and-extension.md)
+
+## 4. 如果你现在只想知道“项目能干嘛”
+
+只看这 3 篇：
+1. [01-rpc-roadmap.md](./01-overview/01-rpc-roadmap.md)
+2. [05-project-visual-guide.md](./01-overview/05-project-visual-guide.md)
+3. [03-current-usage-guide.md](./01-overview/03-current-usage-guide.md)
+
+## 5. 如果你现在只想知道“代码怎么跑”
+
+只看这 4 篇：
+1. [03-current-usage-guide.md](./01-overview/03-current-usage-guide.md)
+2. [09-helloService-call-trace.md](./02-architecture/09-helloService-call-trace.md)
+3. [01-rpc-consumer-call-chain.md](./02-architecture/01-rpc-consumer-call-chain.md)
+4. [02-rpc-provider-call-chain.md](./02-architecture/02-rpc-provider-call-chain.md)
+
+## 6. 如果你现在只想准备面试
+
+只看这 3 篇：
+1. [01-rpc-resume-version.md](./03-interview/01-rpc-resume-version.md)
+2. [02-rpc-project-highlights-final.md](./03-interview/02-rpc-project-highlights-final.md)
+3. [04-rpc-interview-qa-lite.md](./03-interview/04-rpc-interview-qa-lite.md)
+
+## 7. 最后一句提醒
+
+这套文档是按“先建立感觉，再理解调用链，最后再看抽象设计”来写的。
+
+不要一上来就钻 `transport`、`protocol`、`spi`，那样很容易把自己看乱。
