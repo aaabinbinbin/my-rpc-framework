@@ -1,4 +1,4 @@
-package com.rpc.core.protocol.codec;
+﻿package com.rpc.core.protocol.codec;
 
 import com.rpc.core.extension.serialize.Serializer;
 import com.rpc.core.extension.serialize.factory.SerializerFactory;
@@ -18,15 +18,27 @@ import java.util.zip.CRC32;
 
 /**
  * RPC 协议解码器。
+ *
+ * 这个类负责把网络字节流重新还原成 RpcMessage，
+ * 是 protocol 层从“字节世界”回到“对象世界”的关键一步。
  */
 @Slf4j
 public class RpcProtocolDecoder extends LengthFieldBasedFrameDecoder {
     public RpcProtocolDecoder() {
-        // 头长固定 24 字节，其中 bodyLength 位于偏移 20 处，
-        // 因此这里直接复用 Netty 的定长帧解码器解决拆包/粘包问题。
+        // 协议头长度固定为 24 字节，bodyLength 位于偏移 20 处，
+        // 因此可以直接复用 Netty 的长度字段解码器解决拆包和粘包问题。
         super(1024 * 1024, 20, 4, 0, 0);
     }
 
+    /**
+     * 从字节流中解码出 RpcMessage。
+     *
+     * 解码步骤：
+     * 1. 先截取完整帧。
+     * 2. 读取并校验协议头。
+     * 3. 读取消息体字节并校验 checksum。
+     * 4. 根据 serializerType 和 messageType 反序列化为具体对象。
+     */
     @Override
     protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
         ByteBuf frame = (ByteBuf) super.decode(ctx, in);
@@ -35,7 +47,6 @@ public class RpcProtocolDecoder extends LengthFieldBasedFrameDecoder {
         }
 
         RpcHeader header = new RpcHeader();
-        // 按协议头字段顺序逐个读取，顺序必须与 encoder 写入顺序完全一致。
         header.setMagicNumber(frame.readInt());
         header.setVersion(frame.readByte());
         header.setSerializerType(frame.readByte());
@@ -64,15 +75,12 @@ public class RpcProtocolDecoder extends LengthFieldBasedFrameDecoder {
         CRC32 crc32 = new CRC32();
         crc32.update(bodyBytes);
         long calculatedChecksum = crc32.getValue();
-        // 校验和主要用来快速发现传输层数据损坏或编解码不一致。
         if (calculatedChecksum != header.getChecksum()) {
             frame.release();
             throw new IOException("Invalid RPC checksum: expected " + header.getChecksum()
                     + ", actual " + calculatedChecksum);
         }
 
-        // 解码阶段根据 header 中的 serializerType 选择具体序列化器，
-        // 这也是为什么协议层不能直接写死某一种序列化实现。
         Serializer serializer = SerializerFactory.getSerializer(header.getSerializerType());
         Object body = deserializeBody(serializer, bodyBytes, header.getMessageType());
 
@@ -86,9 +94,14 @@ public class RpcProtocolDecoder extends LengthFieldBasedFrameDecoder {
         return message;
     }
 
+    /**
+     * 根据消息类型决定把字节反序列化成哪一种消息体对象。
+     *
+     * 这里体现了协议层的两个核心输入：
+     * 1. serializerType 决定用哪个序列化器。
+     * 2. messageType 决定目标消息模型是请求、响应还是心跳。
+     */
     private Object deserializeBody(Serializer serializer, byte[] bodyBytes, byte messageType) throws IOException {
-        // 这里按 messageType 决定目标模型类，
-        // 协议层只关心“该把字节解成哪种消息体”，不关心后续业务执行。
         if (messageType == RpcMessageType.REQUEST.getCode()) {
             return serializer.deserialize(bodyBytes, RpcRequest.class);
         }

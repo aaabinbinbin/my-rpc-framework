@@ -1,4 +1,4 @@
-package com.rpc.core.protocol.codec;
+﻿package com.rpc.core.protocol.codec;
 
 import com.rpc.core.extension.serialize.Serializer;
 import com.rpc.core.extension.serialize.factory.SerializerFactory;
@@ -14,6 +14,9 @@ import java.util.zip.CRC32;
 
 /**
  * RPC 协议编码器。
+ *
+ * 这个类负责把内存中的 RpcMessage 编码成网络字节流，
+ * 是 protocol 层从“对象世界”走向“字节世界”的关键一步。
  */
 @Slf4j
 public class RpcProtocolEncoder extends MessageToByteEncoder<RpcMessage> {
@@ -22,13 +25,17 @@ public class RpcProtocolEncoder extends MessageToByteEncoder<RpcMessage> {
         super.write(ctx, msg, promise);
     }
 
+    /**
+     * 把 RpcMessage 编码到 ByteBuf。
+     *
+     * 编码顺序必须和解码器读取顺序严格一致，
+     * 否则对端就无法按同样结构把字节还原回来。
+     */
     @Override
     public void encode(ChannelHandlerContext ctx, RpcMessage msg, ByteBuf out) throws Exception {
         RpcHeader header = msg.getHeader();
         Object body = msg.getBody();
 
-        // 编码时根据 header 里声明的 serializerType 选择序列化器，
-        // 这样同一套协议可以承载多种序列化实现。
         Serializer serializer = SerializerFactory.getSerializer(header.getSerializerType());
         byte[] bodyBytes = serializer.serialize(body);
 
@@ -38,7 +45,6 @@ public class RpcProtocolEncoder extends MessageToByteEncoder<RpcMessage> {
         crc32.update(bodyBytes);
         header.setChecksum(crc32.getValue());
 
-        // 头字段写入顺序必须与 decoder 中的读取顺序严格一致。
         out.writeInt(header.getMagicNumber());
         out.writeByte(header.getVersion());
         out.writeByte(header.getSerializerType());

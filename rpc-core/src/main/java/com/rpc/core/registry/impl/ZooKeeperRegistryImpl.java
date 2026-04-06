@@ -1,4 +1,4 @@
-package com.rpc.core.registry.impl;
+﻿package com.rpc.core.registry.impl;
 
 import com.rpc.core.discovery.ServiceChangeListener;
 import com.rpc.core.discovery.ServiceDiscovery;
@@ -23,17 +23,29 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
 
+/**
+ * 基于 ZooKeeper 的注册中心实现。
+ *
+ * 这个类同时实现了：
+ * 1. ServiceRegistry：provider 侧把自己的地址注册到注册中心。
+ * 2. ServiceDiscovery：consumer 侧从注册中心发现并订阅服务地址。
+ *
+ * 当前节点布局约定为：
+ * /rpc/{serviceName}/{host-port}
+ */
 @Slf4j
 public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery {
     /**
-     * 节点布局：
-     * /rpc/{serviceName}/{host-port}
-     * 提供者实例地址使用临时子节点保存，这样进程宕机或 ZooKeeper 会话失效后会自动消失。
+     * 注册中心根节点。
+     * provider 实例地址使用临时子节点保存，这样 provider 进程宕机或会话失效后会自动消失。
      */
     private static final String ZK_ROOT = "/rpc";
 
+    /** ZooKeeper 客户端连接。 */
     private final ZooKeeper zooKeeper;
+    /** 当前进程注册过的服务地址记录。 */
     private final Map<String, List<String>> registeredServices = new ConcurrentHashMap<>();
+    /** consumer 侧监听器集合，按服务名分组。 */
     private final Map<String, Set<ServiceChangeListener>> listeners = new ConcurrentHashMap<>();
 
     public ZooKeeperRegistryImpl(String connectString, int sessionTimeout) {
@@ -58,6 +70,11 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
         }
     }
 
+    /**
+     * provider 侧注册服务地址。
+     *
+     * 注册时会确保服务路径存在，然后为当前地址创建一个临时节点。
+     */
     @Override
     public void register(String serviceName, InetSocketAddress address) {
         try {
@@ -81,6 +98,7 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
         }
     }
 
+    /** provider 侧注销服务地址。 */
     @Override
     public void unregister(String serviceName, InetSocketAddress address) {
         try {
@@ -103,11 +121,17 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
         }
     }
 
+    /** 兼容 lookup 风格调用，底层仍然复用 discover。 */
     @Override
     public List<InetSocketAddress> lookup(String serviceName) {
         return discover(serviceName).getAddresses();
     }
 
+    /**
+     * consumer 侧直接发现服务实例列表。
+     *
+     * 这里不挂 watcher，只做一次性读取。
+     */
     @Override
     public ServiceInstancesSnapshot discover(String serviceName) {
         try {
@@ -128,6 +152,11 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
         }
     }
 
+    /**
+     * 订阅某个服务的实例变更。
+     *
+     * 首次订阅时会建立 watcher，并返回当前快照。
+     */
     @Override
     public ServiceInstancesSnapshot subscribe(String serviceName, ServiceChangeListener listener) {
         listeners.computeIfAbsent(serviceName, key -> new CopyOnWriteArraySet<>()).add(listener);
@@ -139,6 +168,7 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
         }
     }
 
+    /** 取消订阅。 */
     @Override
     public void unsubscribe(String serviceName, ServiceChangeListener listener) {
         Set<ServiceChangeListener> serviceListeners = listeners.get(serviceName);
@@ -150,6 +180,7 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
         }
     }
 
+    /** 关闭 ZooKeeper 连接。 */
     @Override
     public void close() {
         try {
@@ -160,12 +191,14 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
         }
     }
 
+    /** 确保根路径存在。 */
     private void ensureRootPath() throws KeeperException, InterruptedException {
         if (zooKeeper.exists(ZK_ROOT, false) == null) {
             zooKeeper.create(ZK_ROOT, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         }
     }
 
+    /** 确保某个服务的父路径存在。 */
     private void ensureServicePath(String serviceName) throws KeeperException, InterruptedException {
         String servicePath = buildServicePath(serviceName);
         if (zooKeeper.exists(servicePath, false) == null) {
@@ -173,6 +206,12 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
         }
     }
 
+    /**
+     * 读取服务节点的子节点并重新注册 watcher。
+     *
+     * ZooKeeper 的 watcher 是一次性的，因此每次子节点变化后都要重新注册，
+     * 否则后续变化就不会再收到通知。
+     */
     private ServiceInstancesSnapshot watchServiceChildren(String serviceName) throws KeeperException, InterruptedException {
         String servicePath = buildServicePath(serviceName);
         Stat stat = zooKeeper.exists(servicePath, false);
@@ -180,12 +219,11 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
             return ServiceInstancesSnapshot.of(serviceName, List.of());
         }
 
-        // ZooKeeper watcher 是一次性的，因此每次刷新都要重新注册，
-        // 这样后续子节点变化仍然能继续收到通知。
         List<String> children = zooKeeper.getChildren(servicePath, event -> handleChildChange(serviceName, event));
         return notifyListeners(serviceName, children);
     }
 
+    /** watcher 回调：当子节点变化时刷新当前服务快照。 */
     private void handleChildChange(String serviceName, WatchedEvent event) {
         if (event.getType() != Watcher.Event.EventType.NodeChildrenChanged) {
             return;
@@ -197,6 +235,9 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
         }
     }
 
+    /**
+     * 把 ZooKeeper 子节点列表转换成地址快照，并通知所有监听器。
+     */
     private ServiceInstancesSnapshot notifyListeners(String serviceName, List<String> children) {
         List<InetSocketAddress> addresses = new ArrayList<>();
         for (String child : children) {
@@ -213,18 +254,22 @@ public class ZooKeeperRegistryImpl implements ServiceRegistry, ServiceDiscovery 
         return snapshot;
     }
 
+    /** 构造服务路径，例如 /rpc/com.rpc.HelloService。 */
     private String buildServicePath(String serviceName) {
         return ZK_ROOT + "/" + serviceName;
     }
 
+    /** 构造地址节点路径，例如 /rpc/com.rpc.HelloService/127.0.0.1-8080。 */
     private String buildAddressPath(String serviceName, InetSocketAddress address) {
         return buildServicePath(serviceName) + "/" + addressToString(address);
     }
 
+    /** 把地址对象转换成节点名字符串。 */
     private String addressToString(InetSocketAddress address) {
         return address.getHostString() + "-" + address.getPort();
     }
 
+    /** 把节点名字符串还原成地址对象。 */
     private InetSocketAddress stringToAddress(String value) {
         String[] parts = value.split("-");
         return new InetSocketAddress(parts[0], Integer.parseInt(parts[1]));

@@ -1,4 +1,4 @@
-package com.rpc.core.invoke.filter.impl;
+﻿package com.rpc.core.invoke.filter.impl;
 
 import com.rpc.core.common.exception.RpcException;
 import com.rpc.core.resilience.CircuitBreaker;
@@ -13,6 +13,12 @@ import com.rpc.core.invoke.invocation.InvocationOptions;
 import com.rpc.core.protocol.RpcRequest;
 import com.rpc.core.protocol.RpcResponse;
 
+/**
+ * consumer 侧熔断 / 降级过滤器。
+ *
+ * 它运行在 invoker 阶段，位置比 consumer 入口更靠后，
+ * 更适合围绕“一次完整调用”做熔断判断和降级兜底。
+ */
 public class ConsumerCircuitBreakerFilter implements RpcFilter {
     @Override
     public FilterPhase phase() {
@@ -24,12 +30,16 @@ public class ConsumerCircuitBreakerFilter implements RpcFilter {
         return 0;
     }
 
+    /**
+     * 执行熔断判断。
+     *
+     * 如果当前 breaker 已经不允许继续请求，或者失败次数超过阈值，
+     * 就直接走降级逻辑；否则继续执行后续调用链，并根据结果更新 breaker 状态。
+     */
     @Override
     public Object invoke(FilterContext context, FilterChain chain) throws Exception {
         RpcRequest request = context.getRequest();
         InvocationOptions options = context.getInvocationOptions();
-        // 熔断 key 可以是服务级，也可以是方法级，
-        // 具体取决于当前调用解析出来的 InvocationOptions。
         String breakerKey = resolveCircuitBreakerKey(request, options);
         CircuitBreaker circuitBreaker = FilterRuntimeConfig.getCircuitBreakerManager()
                 .getServiceCircuitBreaker(breakerKey);
@@ -40,8 +50,6 @@ public class ConsumerCircuitBreakerFilter implements RpcFilter {
 
         try {
             Object result = chain.proceed(context);
-            // 调用成功后，同时重置熔断器状态和轻量失败计数，
-            // 后者用于降级阈值这条快捷判断路径。
             circuitBreaker.recordSuccess();
             FilterRuntimeConfig.resetConsumerFailure(breakerKey);
             return result;
@@ -56,13 +64,17 @@ public class ConsumerCircuitBreakerFilter implements RpcFilter {
         }
     }
 
+    /**
+     * 判断当前调用是否应该直接降级。
+     *
+     * 当前支持两类触发条件：
+     * 1. 熔断器已经打开。
+     * 2. 最近失败次数达到阈值。
+     */
     private boolean shouldDegrade(CircuitBreaker circuitBreaker, String breakerKey) {
         if (!FilterRuntimeConfig.isConsumerDegradationEnabled()) {
             return false;
         }
-        // 当前支持两种降级触发条件：
-        // 1. 熔断器已经处于打开状态
-        // 2. 最近失败次数达到配置的降级阈值
         if (!circuitBreaker.allowRequest()) {
             return true;
         }
@@ -70,6 +82,7 @@ public class ConsumerCircuitBreakerFilter implements RpcFilter {
                 >= FilterRuntimeConfig.getConsumerFailureThreshold();
     }
 
+    /** 执行降级策略，没有配置策略时抛出 SERVICE_DEGRADED 异常。 */
     private RpcResponse applyDegradation(RpcRequest request) throws RpcException {
         DegradationPolicy degradationPolicy = FilterRuntimeConfig.getConsumerDegradationPolicy();
         if (degradationPolicy != null) {
@@ -78,12 +91,15 @@ public class ConsumerCircuitBreakerFilter implements RpcFilter {
         throw new RpcException(com.rpc.core.common.constant.ErrorCode.SERVICE_DEGRADED, "Service degraded but no policy configured");
     }
 
+    /**
+     * 计算熔断 key。
+     *
+     * 支持按服务维度和按方法维度两种粒度。
+     */
     private String resolveCircuitBreakerKey(RpcRequest request, InvocationOptions options) {
         if (options != null && options.getCircuitBreakerScope() == CircuitBreakerScope.METHOD) {
             return request.getServiceName() + "#" + request.getMethodName();
         }
-        // 默认走服务级保护，这样即使没有方法级覆盖，行为也保持稳定一致。
         return request.getServiceName();
     }
 }
-

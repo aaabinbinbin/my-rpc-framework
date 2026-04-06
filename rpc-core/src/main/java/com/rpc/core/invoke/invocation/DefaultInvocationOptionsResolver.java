@@ -1,11 +1,18 @@
-package com.rpc.core.invoke.invocation;
+﻿package com.rpc.core.invoke.invocation;
 
 import com.rpc.core.protocol.RpcRequest;
 
 import java.util.List;
 
+/**
+ * 默认调用选项解析器。
+ *
+ * 这个类负责把“全局默认配置 + 方法级覆盖配置”合并成一次调用最终生效的 InvocationOptions。
+ */
 public class DefaultInvocationOptionsResolver implements InvocationOptionsResolver {
+    /** 全局默认调用选项。 */
     private final InvocationOptions defaults;
+    /** 方法级配置列表。 */
     private final List<MethodConfig> methodConfigs;
 
     public DefaultInvocationOptionsResolver(InvocationOptions defaults, List<MethodConfig> methodConfigs) {
@@ -13,9 +20,14 @@ public class DefaultInvocationOptionsResolver implements InvocationOptionsResolv
         this.methodConfigs = methodConfigs == null ? List.of() : List.copyOf(methodConfigs);
     }
 
+    /**
+     * 解析某次请求最终生效的调用选项。
+     *
+     * 当前匹配规则比较直接：按 serviceName + methodName 精确匹配 MethodConfig。
+     * 匹配到后，只有显式声明的字段会覆盖默认值，其余字段继续继承 defaults。
+     */
     @Override
     public InvocationOptions resolve(RpcRequest request) {
-        // 当前解析规则很直接：serviceName + methodName 精确匹配。
         MethodConfig match = methodConfigs.stream()
                 .filter(config -> config.getServiceName().equals(request.getServiceName())
                         && config.getMethodName().equals(request.getMethodName()))
@@ -24,7 +36,6 @@ public class DefaultInvocationOptionsResolver implements InvocationOptionsResolv
         if (match == null) {
             return defaults;
         }
-        // 方法级配置只覆盖显式声明的字段，其余字段继续继承全局默认值。
         return InvocationOptions.builder()
                 .retryTimes(match.getRetryTimes() == null ? defaults.getRetryTimes() : match.getRetryTimes())
                 .clusterStrategy(match.getClusterStrategy() == null ? defaults.getClusterStrategy() : match.getClusterStrategy())
@@ -41,4 +52,3 @@ public class DefaultInvocationOptionsResolver implements InvocationOptionsResolv
                 .build();
     }
 }
-

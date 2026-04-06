@@ -1,4 +1,4 @@
-package com.rpc.core.api.bootstrap;
+﻿package com.rpc.core.api.bootstrap;
 
 import com.rpc.core.api.annotation.RpcService;
 import com.rpc.core.api.scanner.ClassPathScanner;
@@ -21,17 +21,22 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 高层服务提供端启动器，
- * 负责组装注册中心、服务端以及注解服务的发布流程。
+ * provider 侧的高层启动入口。
+ *
+ * 这个类负责组装服务注册中心、RPC 服务端、本地服务注册流程，
+ * 是 provider 侧从“普通 Java 服务对象”到“可对外提供 RPC 调用”的总装配器。
  */
 public class RpcProviderBootstrap implements AutoCloseable {
+    /** 服务注册中心客户端，负责把当前 provider 地址注册到注册中心。 */
     private final ServiceRegistry serviceRegistry;
+
+    /** RPC 服务端，负责监听端口、接收请求并调度到 provider 执行链。 */
     private final RpcServer rpcServer;
+
+    /** 框架总配置，决定服务端的传输方式、端口、线程池、扫描包等策略。 */
     private final RpcFrameworkConfig frameworkConfig;
 
-    /**
-     * 避免在 start() 过程中重复扫描并注册配置里的服务。
-     */
+    /** 防止 start() 时重复扫描并注册配置中的服务。 */
     private boolean configuredServicesRegistered;
 
     private RpcProviderBootstrap(ServiceRegistry serviceRegistry, RpcServer rpcServer, RpcFrameworkConfig frameworkConfig) {
@@ -40,13 +45,19 @@ public class RpcProviderBootstrap implements AutoCloseable {
         this.frameworkConfig = frameworkConfig;
     }
 
+    /** 使用默认配置文件创建 provider bootstrap。 */
     public static RpcProviderBootstrap fromConfig() {
         return fromConfig(RpcConfigLoader.load());
     }
 
+    /**
+     * 根据框架总配置创建 provider bootstrap。
+     * 顺序可以理解为：
+     * 1. 先准备 provider 侧过滤器和治理环境。
+     * 2. 再创建服务注册中心客户端。
+     * 3. 再创建真正监听端口的 RPC 服务端。
+     */
     public static RpcProviderBootstrap fromConfig(RpcFrameworkConfig frameworkConfig) {
-        // 服务提供端启动顺序与消费端保持一致：
-        // 先初始化治理和过滤器运行态，再创建注册中心与服务端。
         DegradationPolicy degradationPolicy = DegradationPolicyFactory.create(
                 frameworkConfig.getServerDegradationPolicy(),
                 frameworkConfig.getServerDegradationDefaultValues()
@@ -72,11 +83,20 @@ public class RpcProviderBootstrap implements AutoCloseable {
         return new RpcProviderBootstrap(serviceRegistry, rpcServer, frameworkConfig);
     }
 
+    /**
+     * 把一个服务接口及其实现对象注册到本地注册表。
+     * 注意这里注册的是 provider 本地 JVM 内部的映射关系，
+     * 用于请求真正到达当前 provider 后快速找到该调用哪个对象。
+     */
     public RpcProviderBootstrap registerService(Class<?> serviceInterface, Object serviceImpl) {
         rpcServer.getLocalRegistry().register(serviceInterface.getName(), serviceImpl);
         return this;
     }
 
+    /**
+     * 扫描指定包下的 @RpcService 类，并把它们注册为本地服务。
+     * 这个方法主要用于非 Spring 或需要按包自动导出服务的场景。
+     */
     public RpcProviderBootstrap registerAnnotatedServices(String... basePackages) {
         Set<String> uniquePackages = new LinkedHashSet<>();
         for (String basePackage : basePackages) {
@@ -85,8 +105,6 @@ public class RpcProviderBootstrap implements AutoCloseable {
             }
         }
         for (String basePackage : uniquePackages) {
-            // 服务提供端扫描只负责找出哪些类属于 RPC 服务。
-            // 真正的服务暴露仍然统一收敛到 registerService。
             List<Class<?>> candidates = ClassPathScanner.scan(basePackage);
             for (Class<?> candidate : candidates) {
                 RpcService rpcService = candidate.getAnnotation(RpcService.class);
@@ -100,27 +118,35 @@ public class RpcProviderBootstrap implements AutoCloseable {
         return this;
     }
 
+    /**
+     * 按配置中的扫描包自动注册服务。
+     * 这是对 registerAnnotatedServices 的一个配置化封装。
+     */
     public RpcProviderBootstrap registerConfiguredServices() {
         configuredServicesRegistered = true;
         return registerAnnotatedServices(frameworkConfig.getServerScanPackages().toArray(String[]::new));
     }
 
+    /**
+     * 启动 provider。
+     * 如果配置允许自动注册注解服务且当前尚未注册过，
+     * 就先完成服务注册，再真正启动 RPC server 监听端口。
+     */
     public void start() throws Exception {
-        // 服务提供端启动支持两种模式：
-        // 1. 在 start() 前显式调用 registerService(...)
-        // 2. 根据配置自动注册注解服务
         if (frameworkConfig.isServerAutoRegisterAnnotatedServices() && !configuredServicesRegistered) {
             registerConfiguredServices();
         }
         rpcServer.start();
     }
 
+    /** 使用默认配置创建并立即启动 provider。 */
     public static RpcProviderBootstrap startFromConfig() throws Exception {
         RpcProviderBootstrap bootstrap = fromConfig();
         bootstrap.start();
         return bootstrap;
     }
 
+    /** 关闭服务端和注册中心资源。 */
     @Override
     public void close() {
         rpcServer.shutdown();
@@ -129,6 +155,11 @@ public class RpcProviderBootstrap implements AutoCloseable {
         }
     }
 
+    /**
+     * 通过无参构造方法创建服务实现对象。
+     *
+     * 这个分支主要用于框架自行扫描和实例化 @RpcService 类的场景。
+     */
     private Object instantiate(Class<?> candidate) {
         try {
             Constructor<?> constructor = candidate.getDeclaredConstructor();
@@ -139,12 +170,16 @@ public class RpcProviderBootstrap implements AutoCloseable {
         }
     }
 
+    /**
+     * 推断 @RpcService 对应的服务接口。
+     *
+     * 如果注解没有显式声明接口，则要求实现类只能实现一个接口，
+     * 否则导出服务时就无法判断到底应该以哪个接口作为服务契约。
+     */
     private Class<?> resolveServiceInterface(Class<?> candidate, RpcService rpcService) {
         if (rpcService.value() != Void.class) {
             return rpcService.value();
         }
-        // 如果注解里没有显式声明接口，则要求实现类只实现一个接口，
-        // 这样导出的服务契约才不会产生歧义。
         Class<?>[] interfaces = candidate.getInterfaces();
         if (interfaces.length == 0) {
             throw new IllegalStateException("RpcService must declare an interface: " + candidate.getName());

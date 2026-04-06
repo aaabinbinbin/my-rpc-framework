@@ -1,14 +1,25 @@
-package com.rpc.core.invoke.filter;
+﻿package com.rpc.core.invoke.filter;
 
 import com.rpc.core.config.RpcFrameworkConfig;
 import com.rpc.core.resilience.DegradationPolicy;
 
+/**
+ * 过滤器运行时配置器。
+ *
+ * 过滤器本身通常是无状态的 SPI 扩展，
+ * 但有些 filter 运行时还需要读取全局开关、阈值和降级策略等配置。
+ * 这些动态参数由当前类统一写入 FilterRuntimeConfig。
+ */
 public final class FilterRuntimeConfigurator {
     private FilterRuntimeConfigurator() {
     }
 
+    /**
+     * 配置 consumer 侧运行时参数。
+     *
+     * 当前主要作用于 consumer 熔断 / 降级类过滤器。
+     */
     public static void configureConsumer(RpcFrameworkConfig frameworkConfig, DegradationPolicy degradationPolicy) {
-        // consumer 运行时配置目前主要服务于熔断/降级类 filter。
         FilterRuntimeConfig.configureConsumerDegradation(
                 frameworkConfig.isEnableDegradation(),
                 frameworkConfig.getDegradationFailureThreshold(),
@@ -16,8 +27,12 @@ public final class FilterRuntimeConfigurator {
         );
     }
 
+    /**
+     * 配置 provider 侧运行时参数。
+     *
+     * 当前主要作用于 provider 限流和 provider 降级类过滤器。
+     */
     public static void configureProvider(RpcFrameworkConfig frameworkConfig, DegradationPolicy degradationPolicy) {
-        // provider 运行时配置目前主要服务于限流和降级类 filter。
         FilterRuntimeConfig.configureProviderRateLimit(
                 frameworkConfig.isServerRateLimitEnabled(),
                 frameworkConfig.getServerRateLimitPermitsPerSecond()
@@ -28,4 +43,3 @@ public final class FilterRuntimeConfigurator {
         );
     }
 }
-

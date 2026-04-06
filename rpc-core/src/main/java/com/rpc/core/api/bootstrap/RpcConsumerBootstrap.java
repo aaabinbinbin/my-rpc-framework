@@ -1,4 +1,4 @@
-package com.rpc.core.api.bootstrap;
+﻿package com.rpc.core.api.bootstrap;
 
 import com.rpc.core.api.annotation.RpcReference;
 import com.rpc.core.config.RpcClientConfig;
@@ -20,12 +20,22 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
 /**
- * 消费端高层启动入口，负责组装服务发现、传输层和代理创建流程。
- * 外部代码通常应该直接依赖这个类，而不是手动拼装客户端内部组件。
+ * consumer 侧的高层启动入口。
+ *
+ * 这个类的职责不是执行某一次具体调用，而是在应用启动阶段把 consumer 所需的基础设施组装好，
+ * 包括：服务发现、传输层、过滤器运行时配置、降级策略、代理工厂等。
+ *
+ * 业务代码通常不会直接自己拼装 RpcTransport 或 ServiceDiscovery，
+ * 而是通过这个类一次性拿到一个可工作的 consumer 运行环境。
  */
 public class RpcConsumerBootstrap implements AutoCloseable {
+    /** 服务发现组件，负责从注册中心拿到 provider 地址。 */
     private final ServiceDiscovery serviceDiscovery;
+
+    /** 传输层客户端，负责真正把 RpcRequest 发送到远端。 */
     private final RpcTransport rpcTransport;
+
+    /** 代理工厂，负责把接口类型转换成可发起远程调用的代理对象。 */
     private final RpcProxyFactory proxyFactory;
 
     private RpcConsumerBootstrap(ServiceDiscovery serviceDiscovery, RpcTransport rpcTransport) {
@@ -34,13 +44,21 @@ public class RpcConsumerBootstrap implements AutoCloseable {
         this.proxyFactory = RpcProxyFactory.create(rpcTransport);
     }
 
+    /** 使用默认配置文件创建 consumer bootstrap。 */
     public static RpcConsumerBootstrap fromConfig() {
         return fromConfig(RpcConfigLoader.load());
     }
 
+    /**
+     * 根据框架总配置创建 consumer bootstrap。
+     *
+     * 顺序上可以理解为：
+     * 1. 先准备治理和过滤器运行时环境。
+     * 2. 再准备服务发现。
+     * 3. 再准备客户端传输层。
+     * 4. 最后由构造方法内部准备代理工厂。
+     */
     public static RpcConsumerBootstrap fromConfig(RpcFrameworkConfig frameworkConfig) {
-        // 消费端启动时，先把治理相关运行态灌入 filter（过滤器）/ runtime（运行时）配置，
-        // 再按顺序创建 discovery（服务发现）、transport（传输）和 proxy（代理）。
         DegradationPolicy degradationPolicy = DegradationPolicyFactory.create(
                 frameworkConfig.getConsumerDegradationPolicy(),
                 frameworkConfig.getConsumerDegradationDefaultValues()
@@ -83,17 +101,23 @@ public class RpcConsumerBootstrap implements AutoCloseable {
                 .serializerName(frameworkConfig.getSerializer())
                 .build();
 
-        // transport（传输）只负责请求发送；bootstrap（启动器）在这里把
-        // discovery（服务发现）、配置和 proxy（代理）一起组装，
-        // 让外部使用方式保持简洁。
         RpcTransport rpcTransport = RpcTransportFactory.create(clientConfig, serviceDiscovery);
         return new RpcConsumerBootstrap(serviceDiscovery, rpcTransport);
     }
 
+    /**
+     * 为某个服务接口创建代理对象。
+     * 这是 consumer 最常见的入口方法，
+     * 无论是 Spring 自动注入还是手动创建应用实例，最终都会走到这里。
+     */
     public <T> T getService(Class<T> serviceClass) {
         return proxyFactory.createProxyInstance(serviceClass);
     }
 
+    /**
+     * 创建一个普通应用类实例，并自动给其中的 @RpcReference 字段注入代理。
+     * 这个方法适合非 Spring 场景下快速构建一个 consumer 示例对象。
+     */
     public <T> T createApplication(Class<T> targetClass) {
         try {
             if (Modifier.isAbstract(targetClass.getModifiers()) || targetClass.isInterface()) {
@@ -108,6 +132,11 @@ public class RpcConsumerBootstrap implements AutoCloseable {
         }
     }
 
+    /**
+     * 扫描目标对象及其父类中的字段，把所有 @RpcReference 都替换成 RPC 代理对象。
+     * 这段逻辑本质上和 Spring 场景下的 BeanPostProcessor 注入类似，
+     * 只是这里作用在一个普通 Java 对象上。
+     */
     public <T> T injectReferences(T target) {
         for (Class<?> current = target.getClass(); current != null && current != Object.class; current = current.getSuperclass()) {
             for (Field field : current.getDeclaredFields()) {
@@ -115,8 +144,6 @@ public class RpcConsumerBootstrap implements AutoCloseable {
                 if (rpcReference == null) {
                     continue;
                 }
-                // @RpcReference 同时支持显式指定服务接口，
-                // 以及默认使用字段类型作为服务契约。
                 Class<?> serviceType = rpcReference.value() == Void.class ? field.getType() : rpcReference.value();
                 Object proxy = getService(serviceType);
                 try {
@@ -130,6 +157,11 @@ public class RpcConsumerBootstrap implements AutoCloseable {
         return target;
     }
 
+    /**
+     * 使用默认配置创建 bootstrap，并立即构造目标应用实例。
+     *
+     * 如果中途创建失败，会主动关闭 bootstrap，避免底层客户端资源泄漏。
+     */
     public static <T> T createFromConfig(Class<T> targetClass) {
         RpcConsumerBootstrap bootstrap = fromConfig();
         try {
@@ -140,6 +172,7 @@ public class RpcConsumerBootstrap implements AutoCloseable {
         }
     }
 
+    /** 关闭 consumer 侧传输层资源，例如连接池、事件循环组等。 */
     @Override
     public void close() {
         rpcTransport.close();

@@ -1,4 +1,4 @@
-package com.rpc.core.invoke.filter.impl;
+﻿package com.rpc.core.invoke.filter.impl;
 
 import com.rpc.core.invoke.context.RpcContext;
 import com.rpc.core.invoke.filter.FilterChain;
@@ -7,6 +7,12 @@ import com.rpc.core.invoke.filter.FilterPhase;
 import com.rpc.core.invoke.filter.RpcFilter;
 import org.slf4j.MDC;
 
+/**
+ * provider 侧 MDC 过滤器。
+ * provider 在收到请求后会先恢复 RpcContext，
+ * 这个过滤器再把上下文中的 requestId、traceId、service、method 写入 MDC，
+ * 方便服务端日志和 consumer 侧请求链路对齐。
+ */
 public class ProviderMdcFilter implements RpcFilter {
     @Override
     public FilterPhase phase() {
@@ -18,12 +24,11 @@ public class ProviderMdcFilter implements RpcFilter {
         return 5;
     }
 
+    /** 在 provider 业务执行期间写入 MDC，执行后及时清理。 */
     @Override
     public Object invoke(FilterContext context, FilterChain chain) throws Exception {
         RpcContext rpcContext = context.getRpcContext();
         try {
-            // 服务端从重建后的 RpcContext 恢复 MDC，
-            // 这样服务执行期间的日志就能和原始消费端请求对应起来。
             put("rpcRequestId", rpcContext.getRequestId());
             put("rpcTraceId", rpcContext.getTraceId());
             put("rpcService", context.getRequest().getServiceName());

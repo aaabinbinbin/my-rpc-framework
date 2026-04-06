@@ -1,4 +1,4 @@
-package com.rpc.core.invoke.filter.impl;
+﻿package com.rpc.core.invoke.filter.impl;
 
 import com.rpc.core.invoke.filter.FilterChain;
 import com.rpc.core.invoke.filter.FilterContext;
@@ -8,6 +8,12 @@ import com.rpc.core.observability.metrics.ServiceMetrics;
 import com.rpc.core.observability.metrics.ServiceMetricsManager;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * provider 侧指标过滤器。
+ *
+ * 用于记录服务端视角下的调用耗时和成功率，
+ * 便于和 consumer 侧指标一起做端到端对比。
+ */
 @Slf4j
 public class ProviderMetricsFilter implements RpcFilter {
     @Override
@@ -20,6 +26,7 @@ public class ProviderMetricsFilter implements RpcFilter {
         return 10;
     }
 
+    /** 记录 provider 侧一次调用的耗时与成败。 */
     @Override
     public Object invoke(FilterContext context, FilterChain chain) throws Exception {
         long start = System.nanoTime();
@@ -38,9 +45,8 @@ public class ProviderMetricsFilter implements RpcFilter {
         }
     }
 
+    /** provider 侧指标依然按服务维度聚合。 */
     private void record(FilterContext context, long latencyNanos, boolean failed) {
-        // Provider 侧沿用同一套服务级指标模型，
-        // 这样 consumer/provider 两边的观测数据可以按相同维度对齐比较。
         ServiceMetrics metrics = ServiceMetricsManager.getInstance().get(context.getRequest().getServiceName());
         if (metrics == null) {
             return;
@@ -52,4 +58,3 @@ public class ProviderMetricsFilter implements RpcFilter {
         }
     }
 }
-

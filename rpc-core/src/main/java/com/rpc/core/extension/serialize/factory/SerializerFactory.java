@@ -1,4 +1,4 @@
-package com.rpc.core.extension.serialize.factory;
+﻿package com.rpc.core.extension.serialize.factory;
 
 import com.rpc.core.extension.serialize.Serializer;
 import com.rpc.core.extension.serialize.SerializerType;
@@ -11,11 +11,19 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 序列化扩展工厂。
+ * 序列化器工厂。
+ *
+ * 这个工厂解决两个问题：
+ * 1. 配置阶段通常按名称获取序列化器，例如 protobuf、json。
+ * 2. 协议解码阶段通常按 serializerType 类型码获取序列化器。
+ *
+ * 因此这里同时维护“名称 -> 实现”和“类型码 -> 实现”的桥接逻辑。
  */
 @Slf4j
 public class SerializerFactory {
+    /** 序列化类型码到扩展名的映射。 */
     private static final Map<Integer, String> SERIALIZER_NAME_BY_TYPE = new ConcurrentHashMap<>();
+    /** 按类型码缓存序列化器实例。 */
     private static final Map<Integer, Serializer> SERIALIZER_CACHE_BY_TYPE = new ConcurrentHashMap<>();
 
     static {
@@ -28,15 +36,16 @@ public class SerializerFactory {
                 log.warn("Serializer {} has no @SerializerType annotation", clazz.getName());
                 continue;
             }
-    // 这里只根据类元数据建立映射，
-    // 启动时不需要为了拿到类型码就把所有序列化器实现都提前实例化。
             SERIALIZER_NAME_BY_TYPE.put(serializerType.value(), name);
         }
     }
 
+    /**
+     * 按协议头中的类型码获取序列化器。
+     *
+     * 这是编解码阶段的热点路径，因此这里单独做了一层类型码缓存。
+     */
     public static Serializer getSerializer(int type) {
-    // 协议解码阶段通常先拿到的是数值类型码，
-    // 因此单独维护 serializerType（序列化类型） -> serializer（序列化器）实例的缓存来覆盖这条热点路径。
         String name = SERIALIZER_NAME_BY_TYPE.get(type);
         if (name == null) {
             return getDefaultSerializer();
@@ -44,10 +53,12 @@ public class SerializerFactory {
         return SERIALIZER_CACHE_BY_TYPE.computeIfAbsent(type, ignored -> getSerializer(name));
     }
 
+    /** 获取默认序列化器。 */
     public static Serializer getDefaultSerializer() {
         return ExtensionFactory.getDefaultExtension(Serializer.class);
     }
 
+    /** 按扩展名获取序列化器。 */
     public static Serializer getSerializer(String name) {
         return ExtensionFactory.getExtension(Serializer.class, name);
     }

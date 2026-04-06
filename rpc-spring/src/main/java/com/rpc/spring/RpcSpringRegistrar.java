@@ -17,6 +17,14 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * ImportBeanDefinitionRegistrar 在 Spring 容器还没真正开始创建 Bean 之前，先往容器里“塞”一些 BeanDefinition。
+ * 当前类的作用：
+ * 1.如果容器里还没有 RpcSpringManager，先注册一个。
+ * 2.扫描 @EnableRpc(scanPackages=...) 指定的包，
+ *   把带 @RpcService 的类注册成 Spring BeanDefinition。
+ * RpcSpringRegistrar 不是实例化 Bean，它只是告诉 Spring：“这里有个类，将来你要把它当 Bean 创建出来。
+ */
 public class RpcSpringRegistrar implements ImportBeanDefinitionRegistrar {
     @Override
     public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry registry) {

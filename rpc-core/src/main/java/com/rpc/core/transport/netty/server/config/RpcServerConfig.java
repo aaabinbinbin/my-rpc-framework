@@ -1,37 +1,41 @@
-package com.rpc.core.transport.netty.server.config;
+﻿package com.rpc.core.transport.netty.server.config;
 
 import com.rpc.core.transport.TransportType;
 import lombok.Data;
 
 /**
  * RPC 服务端配置。
+ *
+ * 这是 provider 侧真正下沉到 Netty / Socket 服务端实现时使用的配置对象，
+ * 比 RpcFrameworkConfig 更贴近“服务端如何监听和执行”的细节。
  */
 @Data
 public class RpcServerConfig {
+    /** 服务端传输类型。 */
     private TransportType transportType = TransportType.NETTY;
-
+    /** 对外暴露的 host。 */
     private String host;
-
+    /** 对外暴露的端口。 */
     private int port = 8080;
-
+    /** Netty boss 线程数。 */
     private int bossThreads = 1;
-
+    /** Netty worker 线程数。 */
     private int workerThreads = Runtime.getRuntime().availableProcessors() * 2;
-
+    /** 业务线程池核心线程数。 */
     private int bizCoreThreads = Runtime.getRuntime().availableProcessors();
-
+    /** 业务线程池最大线程数。 */
     private int bizMaxThreads = Runtime.getRuntime().availableProcessors() * 2;
-
+    /** 业务线程池队列容量。 */
     private int bizQueueCapacity = 1000;
-
+    /** 默认序列化类型码。 */
     private byte serializerType = 1;
-
+    /** 优雅停机超时时间。 */
     private int shutdownTimeout = 10;
-
+    /** 服务端读空闲时间。 */
     private int readerIdleTime = 30000;
-
+    /** 服务端写空闲时间。 */
     private int writerIdleTime = 0;
-
+    /** 服务端全空闲时间。 */
     private int allIdleTime = 0;
 
     public static RpcServerConfig custom() {
@@ -103,4 +107,3 @@ public class RpcServerConfig {
         return this;
     }
 }
-
