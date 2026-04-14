@@ -1,10 +1,10 @@
-﻿package com.rpc.core.invoke.filter.impl;
+package com.rpc.core.invoke.filter.impl;
 
 import com.rpc.core.invoke.context.RpcContext;
-import com.rpc.core.invoke.filter.FilterChain;
-import com.rpc.core.invoke.filter.FilterContext;
-import com.rpc.core.invoke.filter.FilterPhase;
-import com.rpc.core.invoke.filter.RpcFilter;
+import com.rpc.core.invoke.filter.api.FilterChain;
+import com.rpc.core.invoke.filter.context.FilterContext;
+import com.rpc.core.invoke.filter.api.FilterPhase;
+import com.rpc.core.invoke.filter.api.RpcFilter;
 import org.slf4j.MDC;
 
 /**
@@ -21,7 +21,7 @@ public class ProviderMdcFilter implements RpcFilter {
 
     @Override
     public int order() {
-        return 5;
+        return 0;
     }
 
     /** 在 provider 业务执行期间写入 MDC，执行后及时清理。 */

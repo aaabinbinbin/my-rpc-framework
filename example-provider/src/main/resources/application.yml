@@ -2,18 +2,6 @@ server:
   port: 18080
 
 rpc:
-  spring:
-    enabled: true
-    scan-packages: com.rpc
-  transport: netty
-  serializer: protobuf
   registry:
-    type: zookeeper
     address: ${RPC_REGISTRY_ADDRESS:8.134.204.101:2181}
-    timeout: 5000
-  server:
-    host: 127.0.0.1
-    port: 8080
-    auto-register-annotated-services: true
-    scan-packages:
-      - com.rpc
+#    timeout: ${RPC_REGISTRY_TIMEOUT:15000}

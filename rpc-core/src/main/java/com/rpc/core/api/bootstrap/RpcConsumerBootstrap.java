@@ -1,13 +1,13 @@
-﻿package com.rpc.core.api.bootstrap;
+package com.rpc.core.api.bootstrap;
 
 import com.rpc.core.api.annotation.RpcReference;
-import com.rpc.core.config.RpcClientConfig;
-import com.rpc.core.config.RpcConfigLoader;
-import com.rpc.core.config.RpcFrameworkConfig;
+import com.rpc.core.config.client.RpcClientConfig;
+import com.rpc.core.config.framework.RpcConfigLoader;
+import com.rpc.core.config.framework.RpcFrameworkConfig;
 import com.rpc.core.discovery.ServiceDiscovery;
-import com.rpc.core.extension.loadbalance.factory.LoadBalancerFactory;
-import com.rpc.core.invoke.filter.FilterManager;
-import com.rpc.core.invoke.filter.FilterRuntimeConfigurator;
+import com.rpc.core.invoke.filter.runtime.FilterManager;
+import com.rpc.core.invoke.filter.runtime.FilterRuntimeConfig;
+import com.rpc.core.invoke.filter.runtime.FilterRuntimeConfigurator;
 import com.rpc.core.invoke.proxy.RpcProxyFactory;
 import com.rpc.core.registry.factory.ServiceRegistryFactory;
 import com.rpc.core.resilience.DegradationPolicy;
@@ -18,46 +18,43 @@ import com.rpc.core.transport.factory.RpcTransportFactory;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * consumer 侧的高层启动入口。
+ * consumer 侧启动门面。
  *
- * 这个类的职责不是执行某一次具体调用，而是在应用启动阶段把 consumer 所需的基础设施组装好，
- * 包括：服务发现、传输层、过滤器运行时配置、降级策略、代理工厂等。
+ * 所处阶段：应用启动或测试代码需要创建 RPC consumer 运行时。
+ * 主要职责：
+ * - 加载框架配置并初始化 consumer 侧 filter/runtime。
+ * - 创建注册发现客户端、Netty transport 和代理工厂。
+ * - 为服务接口生成代理对象，或给普通对象注入 @RpcReference 字段。
+ * - 关闭时释放 transport，并在最后一个 consumer 关闭后清理 consumer 侧全局运行时状态。
  *
- * 业务代码通常不会直接自己拼装 RpcTransport 或 ServiceDiscovery，
- * 而是通过这个类一次性拿到一个可工作的 consumer 运行环境。
+ * 注意事项：
+ * - 这里不直接发送请求，真实调用发生在代理对象的方法拦截之后。
+ * - ACTIVE_CONSUMERS 用于避免多个 bootstrap 共存时提前重置全局 filter/熔断状态。
  */
 public class RpcConsumerBootstrap implements AutoCloseable {
-    /** 服务发现组件，负责从注册中心拿到 provider 地址。 */
+    private static final AtomicInteger ACTIVE_CONSUMERS = new AtomicInteger(0);
+
     private final ServiceDiscovery serviceDiscovery;
-
-    /** 传输层客户端，负责真正把 RpcRequest 发送到远端。 */
     private final RpcTransport rpcTransport;
-
-    /** 代理工厂，负责把接口类型转换成可发起远程调用的代理对象。 */
     private final RpcProxyFactory proxyFactory;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private RpcConsumerBootstrap(ServiceDiscovery serviceDiscovery, RpcTransport rpcTransport) {
         this.serviceDiscovery = serviceDiscovery;
         this.rpcTransport = rpcTransport;
         this.proxyFactory = RpcProxyFactory.create(rpcTransport);
+        ACTIVE_CONSUMERS.incrementAndGet();
     }
 
-    /** 使用默认配置文件创建 consumer bootstrap。 */
     public static RpcConsumerBootstrap fromConfig() {
         return fromConfig(RpcConfigLoader.load());
     }
 
-    /**
-     * 根据框架总配置创建 consumer bootstrap。
-     *
-     * 顺序上可以理解为：
-     * 1. 先准备治理和过滤器运行时环境。
-     * 2. 再准备服务发现。
-     * 3. 再准备客户端传输层。
-     * 4. 最后由构造方法内部准备代理工厂。
-     */
+    /** 按给定框架配置创建 consumer 运行时。 */
     public static RpcConsumerBootstrap fromConfig(RpcFrameworkConfig frameworkConfig) {
         DegradationPolicy degradationPolicy = DegradationPolicyFactory.create(
                 frameworkConfig.getConsumerDegradationPolicy(),
@@ -67,56 +64,21 @@ public class RpcConsumerBootstrap implements AutoCloseable {
         FilterRuntimeConfigurator.configureConsumer(frameworkConfig, degradationPolicy);
 
         ServiceDiscovery serviceDiscovery = ServiceRegistryFactory.createDiscovery(frameworkConfig);
-        RpcClientConfig clientConfig = RpcClientConfig.builder()
-                .transportType(frameworkConfig.getTransportType())
-                .connectTimeout(frameworkConfig.getConnectTimeout())
-                .readTimeout(frameworkConfig.getReadTimeout())
-                .heartbeatInterval(frameworkConfig.getHeartbeatInterval())
-                .writerIdleTime(frameworkConfig.getWriterIdleTime())
-                .readerIdleTime(frameworkConfig.getReaderIdleTime())
-                .retryTimes(frameworkConfig.getRetryTimes())
-                .clusterStrategy(frameworkConfig.getClusterStrategy())
-                .methodConfigs(frameworkConfig.getMethodConfigs())
-                .reconnectEnabled(frameworkConfig.isReconnectEnabled())
-                .reconnectMaxRetryTimes(frameworkConfig.getReconnectMaxRetryTimes())
-                .reconnectInitialDelaySeconds(frameworkConfig.getReconnectInitialDelaySeconds())
-                .reconnectMaxDelaySeconds(frameworkConfig.getReconnectMaxDelaySeconds())
-                .reconnectJitterEnabled(frameworkConfig.isReconnectJitterEnabled())
-                .reconnectJitterMinSeconds(frameworkConfig.getReconnectJitterMinSeconds())
-                .reconnectJitterMaxSeconds(frameworkConfig.getReconnectJitterMaxSeconds())
-                .discoveryPreheatEnabled(frameworkConfig.isDiscoveryPreheatEnabled())
-                .discoveryPreheatServices(frameworkConfig.getDiscoveryPreheatServices())
-                .discoveryCacheTtlMillis(frameworkConfig.getDiscoveryCacheTtlMillis())
-                .discoveryAllowStaleOnFailure(frameworkConfig.isDiscoveryAllowStaleOnFailure())
-                .degradationPolicy(degradationPolicy)
-                .enableDegradation(frameworkConfig.isEnableDegradation())
-                .degradationFailureThreshold(frameworkConfig.getDegradationFailureThreshold())
-                .rateLimitEnabled(frameworkConfig.isRateLimitEnabled())
-                .rateLimitPermitsPerSecond(frameworkConfig.getRateLimitPermitsPerSecond())
-                .circuitBreakerFailureRateThreshold(frameworkConfig.getCircuitBreakerFailureRateThreshold())
-                .circuitBreakerMinNumberOfCalls(frameworkConfig.getCircuitBreakerMinNumberOfCalls())
-                .circuitBreakerWaitDurationInOpenStateMillis(frameworkConfig.getCircuitBreakerWaitDurationInOpenStateMillis())
-                .circuitBreakerPermittedHalfOpenCalls(frameworkConfig.getCircuitBreakerPermittedHalfOpenCalls())
-                .loadBalancer(LoadBalancerFactory.getLoadBalancer(frameworkConfig.getLoadBalancer()))
-                .serializerName(frameworkConfig.getSerializer())
-                .build();
+        RpcClientConfig clientConfig = RpcClientConfig.fromFrameworkConfig(frameworkConfig, degradationPolicy);
 
         RpcTransport rpcTransport = RpcTransportFactory.create(clientConfig, serviceDiscovery);
         return new RpcConsumerBootstrap(serviceDiscovery, rpcTransport);
     }
 
-    /**
-     * 为某个服务接口创建代理对象。
-     * 这是 consumer 最常见的入口方法，
-     * 无论是 Spring 自动注入还是手动创建应用实例，最终都会走到这里。
-     */
+    /** 为某个服务接口创建 RPC 代理对象，业务侧后续调用会进入代理拦截逻辑。 */
     public <T> T getService(Class<T> serviceClass) {
         return proxyFactory.createProxyInstance(serviceClass);
     }
 
     /**
-     * 创建一个普通应用类实例，并自动给其中的 @RpcReference 字段注入代理。
-     * 这个方法适合非 Spring 场景下快速构建一个 consumer 示例对象。
+     * 创建一个普通 consumer 应用对象并注入 @RpcReference。
+     *
+     * 主要用于非 Spring 场景；Spring 场景下由 RpcSpringManager 在 Bean 生命周期中完成注入。
      */
     public <T> T createApplication(Class<T> targetClass) {
         try {
@@ -132,11 +94,7 @@ public class RpcConsumerBootstrap implements AutoCloseable {
         }
     }
 
-    /**
-     * 扫描目标对象及其父类中的字段，把所有 @RpcReference 都替换成 RPC 代理对象。
-     * 这段逻辑本质上和 Spring 场景下的 BeanPostProcessor 注入类似，
-     * 只是这里作用在一个普通 Java 对象上。
-     */
+    /** 扫描目标对象及其父类字段，把 @RpcReference 字段替换为 RPC 代理对象。 */
     public <T> T injectReferences(T target) {
         for (Class<?> current = target.getClass(); current != null && current != Object.class; current = current.getSuperclass()) {
             for (Field field : current.getDeclaredFields()) {
@@ -157,11 +115,7 @@ public class RpcConsumerBootstrap implements AutoCloseable {
         return target;
     }
 
-    /**
-     * 使用默认配置创建 bootstrap，并立即构造目标应用实例。
-     *
-     * 如果中途创建失败，会主动关闭 bootstrap，避免底层客户端资源泄漏。
-     */
+    /** 一步式创建 consumer bootstrap 和目标应用对象；如果创建失败会主动关闭 bootstrap。 */
     public static <T> T createFromConfig(Class<T> targetClass) {
         RpcConsumerBootstrap bootstrap = fromConfig();
         try {
@@ -172,9 +126,16 @@ public class RpcConsumerBootstrap implements AutoCloseable {
         }
     }
 
-    /** 关闭 consumer 侧传输层资源，例如连接池、事件循环组等。 */
+    /** 关闭 consumer 运行时资源，并在最后一个 consumer 关闭后清理全局 consumer 状态。 */
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
         rpcTransport.close();
+        if (ACTIVE_CONSUMERS.decrementAndGet() == 0) {
+            FilterRuntimeConfig.resetConsumer();
+            FilterRuntimeConfig.getCircuitBreakerManager().resetAll();
+        }
     }
 }

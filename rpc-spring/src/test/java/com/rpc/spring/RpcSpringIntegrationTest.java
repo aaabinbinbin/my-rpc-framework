@@ -3,10 +3,10 @@ package com.rpc.spring;
 import com.rpc.core.api.annotation.RpcReference;
 import com.rpc.core.api.bootstrap.RpcConsumerBootstrap;
 import com.rpc.core.api.bootstrap.RpcProviderBootstrap;
-import com.rpc.core.config.RpcFrameworkConfig;
+import com.rpc.core.config.framework.RpcFrameworkConfig;
 import com.rpc.core.discovery.ServiceDiscovery;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
 import com.rpc.core.registry.LocalRegistry;
 import com.rpc.core.registry.ServiceRegistry;
 import com.rpc.spring.support.DemoService;
@@ -77,10 +77,6 @@ class RpcSpringIntegrationTest {
         @Override
         public RpcResponse sendRequest(RpcRequest rpcRequest) {
             return RpcResponse.success("ok", rpcRequest.getRequestId());
-        }
-
-        @Override
-        public void sendRequestAsync(RpcRequest rpcRequest, long requestId) {
         }
 
         @Override

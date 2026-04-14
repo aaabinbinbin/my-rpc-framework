@@ -1,8 +1,0 @@
-trace=com.rpc.core.invoke.filter.impl.TraceFilter
-mdc=com.rpc.core.invoke.filter.impl.MdcFilter
-consumerMetrics=com.rpc.core.invoke.filter.impl.ConsumerMetricsFilter
-providerMdc=com.rpc.core.invoke.filter.impl.ProviderMdcFilter
-providerMetrics=com.rpc.core.invoke.filter.impl.ProviderMetricsFilter
-providerRateLimit=com.rpc.core.invoke.filter.impl.ProviderRateLimitFilter
-consumerCircuitBreaker=com.rpc.core.invoke.filter.impl.ConsumerCircuitBreakerFilter
-

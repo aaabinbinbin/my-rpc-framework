@@ -144,5 +144,6 @@
 2. [02-what-this-project-really-does.md](./01-start-here/02-what-this-project-really-does.md)
 3. [03-run-the-smallest-example.md](./01-start-here/03-run-the-smallest-example.md)
 4. [04-repo-map.md](./01-start-here/04-repo-map.md)
+5. [05-current-implementation-snapshot.md](./01-start-here/05-current-implementation-snapshot.md)
 
-如果你能完整走完这四篇，说明你已经从“我根本不知道项目在干嘛”进入“我开始有主线感觉了”。
+如果你能完整走完这五篇，说明你已经从“我根本不知道项目在干嘛”进入“我开始有主线感觉了”。

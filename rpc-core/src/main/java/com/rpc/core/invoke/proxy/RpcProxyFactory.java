@@ -1,6 +1,6 @@
-﻿package com.rpc.core.invoke.proxy;
+package com.rpc.core.invoke.proxy;
 
-import com.rpc.core.config.RpcClientConfig;
+import com.rpc.core.config.client.RpcClientConfig;
 import com.rpc.core.discovery.ServiceDiscovery;
 import com.rpc.core.invoke.proxy.impl.RpcInvocationHandler;
 import com.rpc.core.invoke.proxy.impl.RpcMethodInterceptor;
@@ -73,7 +73,6 @@ public class RpcProxyFactory {
 
     /**
      * 通过 JDK 动态代理创建服务代理。
-     *
      * 代理后的每一次方法调用最终都会进入 RpcInvocationHandler，
      * 再被翻译成 RpcRequest 并发起远程调用。
      */

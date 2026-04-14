@@ -1,8 +1,8 @@
 package com.rpc.core.resilience.degrade;
 
 import com.rpc.core.common.constant.ErrorCode;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
 import com.rpc.core.resilience.DegradationPolicy;
 import lombok.extern.slf4j.Slf4j;
 

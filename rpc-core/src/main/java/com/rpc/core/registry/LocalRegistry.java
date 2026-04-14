@@ -1,4 +1,4 @@
-﻿package com.rpc.core.registry;
+package com.rpc.core.registry;
 
 /**
  * provider 本地注册表抽象。

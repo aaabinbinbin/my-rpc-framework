@@ -1,4 +1,4 @@
-﻿package com.rpc.core.extension.loadbalance.factory;
+package com.rpc.core.extension.loadbalance.factory;
 
 import com.rpc.core.extension.loadbalance.LoadBalancer;
 import com.rpc.core.extension.spi.ExtensionFactory;

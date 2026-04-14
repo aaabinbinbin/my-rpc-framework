@@ -1,4 +1,4 @@
-﻿package com.rpc.core.discovery;
+package com.rpc.core.discovery;
 
 /**
  * 服务发现抽象。

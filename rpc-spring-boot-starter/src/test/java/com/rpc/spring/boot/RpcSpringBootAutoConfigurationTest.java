@@ -3,13 +3,15 @@ package com.rpc.spring.boot;
 import com.rpc.core.api.annotation.RpcReference;
 import com.rpc.core.api.bootstrap.RpcConsumerBootstrap;
 import com.rpc.core.api.bootstrap.RpcProviderBootstrap;
-import com.rpc.core.config.RpcFrameworkConfig;
+import com.rpc.core.config.framework.RpcFrameworkConfig;
 import com.rpc.core.invoke.invocation.CircuitBreakerScope;
 import com.rpc.core.invoke.invocation.ClusterStrategy;
 import com.rpc.core.invoke.invocation.MethodConfig;
+import com.rpc.core.observability.metrics.ClientRuntimeMetricsManager;
+import com.rpc.core.observability.metrics.ServiceMetricsManager;
 import com.rpc.core.discovery.ServiceDiscovery;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
 import com.rpc.core.registry.LocalRegistry;
 import com.rpc.core.registry.ServiceRegistry;
 import com.rpc.spring.boot.support.DemoService;
@@ -17,7 +19,9 @@ import com.rpc.spring.boot.support.DemoServiceImpl;
 import com.rpc.core.transport.RpcServer;
 import com.rpc.core.transport.RpcTransport;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfigurationPackage;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -25,7 +29,9 @@ import java.lang.reflect.Constructor;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RpcSpringBootAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
@@ -52,6 +58,17 @@ class RpcSpringBootAutoConfigurationTest {
                     "rpc.client.methods[0].rate-limit-permits-per-second=9",
                     "rpc.client.methods[0].circuit-breaker-scope=method"
             )
+            .withConfiguration(org.springframework.boot.autoconfigure.AutoConfigurations.of(RpcSpringBootAutoConfiguration.class));
+    private final WebApplicationContextRunner webContextRunner = new WebApplicationContextRunner()
+            .withUserConfiguration(TestSupportConfiguration.class, ConsumerBeanConfiguration.class)
+            .withPropertyValues(
+                    "rpc.spring.enabled=true",
+                    "rpc.spring.scan-packages=com.rpc.spring.boot.support"
+            )
+            .withConfiguration(org.springframework.boot.autoconfigure.AutoConfigurations.of(RpcSpringBootAutoConfiguration.class));
+    private final ApplicationContextRunner autoPackageContextRunner = new ApplicationContextRunner()
+            .withUserConfiguration(AutoPackageConfiguration.class, TestSupportConfiguration.class, ConsumerBeanConfiguration.class)
+            .withPropertyValues("rpc.spring.enabled=true")
             .withConfiguration(org.springframework.boot.autoconfigure.AutoConfigurations.of(RpcSpringBootAutoConfiguration.class));
 
     @Test
@@ -86,6 +103,71 @@ class RpcSpringBootAutoConfigurationTest {
             assertEquals(9, methodConfig.getRateLimitPermitsPerSecond());
             assertEquals(CircuitBreakerScope.METHOD, methodConfig.getCircuitBreakerScope());
         });
+    }
+
+    @Test
+    void shouldInferScanPackageFromSpringBootAutoConfigurationPackage() {
+        autoPackageContextRunner.run(context -> {
+            CapturingRpcServer rpcServer = context.getBean(CapturingRpcServer.class);
+
+            assertNotNull(context.getBean(DemoServiceImpl.class));
+            assertEquals(DemoService.class.getName(), rpcServer.localRegistry.registeredServiceName);
+        });
+    }
+
+    @Test
+    void shouldExposeObservabilityFacadeBean() {
+        contextRunner.run(context -> {
+            ClientRuntimeMetricsManager.getInstance().getMetrics().recordPendingLimitRejection();
+
+            RpcObservabilityFacade facade = context.getBean(RpcObservabilityFacade.class);
+
+            assertNotNull(facade);
+            assertEquals(1, facade.clientRuntime().getPendingLimitRejections());
+
+            ClientRuntimeMetricsManager.getInstance().reset();
+        });
+    }
+
+    @Test
+    void shouldExposeObservabilityEndpointInWebApplication() {
+        webContextRunner.run(context -> {
+            RpcObservabilityEndpoint endpoint = context.getBean(RpcObservabilityEndpoint.class);
+
+            assertNotNull(endpoint);
+            assertEquals(0, endpoint.snapshot(false, null).getReturnedServices());
+            assertTrue(endpoint.snapshot(false, null).getServiceMetrics().isEmpty());
+        });
+    }
+
+    @Test
+    void shouldLimitDetailedObservabilityPayload() {
+        ServiceMetricsManager metricsManager = ServiceMetricsManager.getInstance();
+        metricsManager.register("svc-b");
+        metricsManager.register("svc-a");
+        metricsManager.get("svc-a").recordSuccess(10);
+        metricsManager.get("svc-b").recordFailure(20);
+
+        try {
+            webContextRunner.run(context -> {
+                RpcObservabilityResponse response =
+                        context.getBean(RpcObservabilityEndpoint.class).snapshot(true, 1);
+
+                assertEquals(2, response.getTotalServices());
+                assertEquals(1, response.getReturnedServices());
+                assertTrue(response.isServiceMetricsTruncated());
+                assertTrue(response.getServiceMetrics().containsKey("svc-a"));
+                assertFalse(response.getServiceMetrics().containsKey("svc-b"));
+            });
+        } finally {
+            metricsManager.remove("svc-a");
+            metricsManager.remove("svc-b");
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @AutoConfigurationPackage
+    static class AutoPackageConfiguration {
     }
 
     @Configuration(proxyBeanMethods = false)
@@ -129,10 +211,6 @@ class RpcSpringBootAutoConfigurationTest {
         @Override
         public RpcResponse sendRequest(RpcRequest rpcRequest) {
             return RpcResponse.success("ok", rpcRequest.getRequestId());
-        }
-
-        @Override
-        public void sendRequestAsync(RpcRequest rpcRequest, long requestId) {
         }
 
         @Override

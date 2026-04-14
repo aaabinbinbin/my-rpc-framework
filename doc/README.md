@@ -17,6 +17,20 @@
 5. 你能带着明确顺序去看源码，而不是乱点文件。
 6. 你能把这个项目讲给别人听，而不是只会说“这里用了 Netty、那里用了 ZooKeeper”。
 
+## 0. 文档分层
+
+当前 `doc` 目录分成两层使用：
+
+1. 教材层：`01-start-here`、`02-main-story`、`03-source-reading`、`04-output`。
+   这层适合从零开始连续学习，目标是从“会运行”走到“能解释实现”。
+2. 知识库层：[`kb/00-index.md`](./kb/00-index.md)。
+   这层适合查询，目标是快速定位模块、类、调用链、配置和排障入口。
+3. 测试层：[`05-testing/README.md`](./05-testing/README.md)。
+   这层适合按步骤验证项目，并把测试结果沉淀到 `05-testing/results`。
+
+如果你是第一次看这个项目，先按教材层顺序读。  
+如果你已经知道大概主线，只是想查“某个类在哪一层、某个配置影响哪条链路”，直接进知识库层。
+
 ## 1. 你该怎么使用这套文档
 
 最重要的一点是：
@@ -119,6 +133,7 @@
 3. [02-what-this-project-really-does.md](./01-start-here/02-what-this-project-really-does.md)
 4. [03-run-the-smallest-example.md](./01-start-here/03-run-the-smallest-example.md)
 5. [04-repo-map.md](./01-start-here/04-repo-map.md)
+6. [05-current-implementation-snapshot.md](./01-start-here/05-current-implementation-snapshot.md)
 
 ### 第二阶段：先打通一条主线
 
@@ -139,6 +154,10 @@
 
 1. [01-project-summary.md](./04-output/01-project-summary.md)
 2. [02-resume-and-interview.md](./04-output/02-resume-and-interview.md)
+3. [03-optimized-execution-flow.md](./04-output/03-optimized-execution-flow.md)
+4. [04-module-and-code-details.md](./04-output/04-module-and-code-details.md)
+5. [05-interview-playbook.md](./04-output/05-interview-playbook.md)
+6. [06-technical-interview-notes.md](./04-output/06-technical-interview-notes.md)
 
 ## 4. 学习纪律：怎么读才不会费劲
 

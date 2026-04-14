@@ -1,11 +1,11 @@
-﻿package com.rpc.core.transport.factory;
+package com.rpc.core.transport.factory;
 
 import com.rpc.core.registry.ServiceRegistry;
 import com.rpc.core.transport.RpcServer;
 import com.rpc.core.transport.TransportType;
 import com.rpc.core.transport.netty.server.RpcNettyServer;
-import com.rpc.core.transport.netty.server.config.RpcServerConfig;
-import com.rpc.core.transport.socket.server.RpcSocketServer;
+import com.rpc.core.config.server.RpcServerConfig;
+import com.rpc.core.transport.socket.legacy.server.RpcSocketServer;
 
 /**
  * RPC 服务端工厂。

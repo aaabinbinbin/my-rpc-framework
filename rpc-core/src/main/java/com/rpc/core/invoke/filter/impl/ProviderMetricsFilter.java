@@ -1,11 +1,12 @@
-﻿package com.rpc.core.invoke.filter.impl;
+package com.rpc.core.invoke.filter.impl;
 
-import com.rpc.core.invoke.filter.FilterChain;
-import com.rpc.core.invoke.filter.FilterContext;
-import com.rpc.core.invoke.filter.FilterPhase;
-import com.rpc.core.invoke.filter.RpcFilter;
+import com.rpc.core.invoke.filter.api.FilterChain;
+import com.rpc.core.invoke.filter.context.FilterContext;
+import com.rpc.core.invoke.filter.api.FilterPhase;
+import com.rpc.core.invoke.filter.api.RpcFilter;
 import com.rpc.core.observability.metrics.ServiceMetrics;
 import com.rpc.core.observability.metrics.ServiceMetricsManager;
+import com.rpc.core.protocol.message.RpcResponse;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -16,6 +17,8 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public class ProviderMetricsFilter implements RpcFilter {
+    private static final int SUCCESS_CODE = 200;
+
     @Override
     public FilterPhase phase() {
         return FilterPhase.PROVIDER;
@@ -23,7 +26,7 @@ public class ProviderMetricsFilter implements RpcFilter {
 
     @Override
     public int order() {
-        return 10;
+        return 1;
     }
 
     /** 记录 provider 侧一次调用的耗时与成败。 */
@@ -32,7 +35,7 @@ public class ProviderMetricsFilter implements RpcFilter {
         long start = System.nanoTime();
         try {
             Object result = chain.proceed(context);
-            record(context, System.nanoTime() - start, false);
+            record(context, System.nanoTime() - start, isFailedResponse(result));
             return result;
         } catch (Exception e) {
             record(context, System.nanoTime() - start, true);
@@ -56,5 +59,13 @@ public class ProviderMetricsFilter implements RpcFilter {
         } else {
             metrics.recordSuccess(latencyNanos);
         }
+    }
+
+    private boolean isFailedResponse(Object result) {
+        if (!(result instanceof RpcResponse response)) {
+            return false;
+        }
+        // provider 侧不能只统计异常，限流/繁忙/降级等非 200 响应也必须计为失败。
+        return response.getCode() == null || response.getCode() != SUCCESS_CODE;
     }
 }

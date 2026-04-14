@@ -1,6 +1,6 @@
-﻿package com.rpc.core.invoke.invocation;
+package com.rpc.core.invoke.invocation;
 
-import com.rpc.core.protocol.RpcRequest;
+import com.rpc.core.protocol.message.RpcRequest;
 
 import java.util.List;
 

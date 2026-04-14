@@ -1,75 +1,75 @@
-# �ؼ���Դ�뵼��������Щ��ʱ���׸ÿ�ʲô
+# 关键类源码导读：打开这些类时到底该看什么
 
-## 1. ��һƪ����һƪ������
+## 1. 这一篇和上一篇的区别
 
-��һƪ [01-reading-order.md](D:/aaaRPC/my-rpc-framework/doc/03-source-reading/01-reading-order.md) ������ǣ�
+上一篇 [01-reading-order.md](D:/aaaRPC/my-rpc-framework/doc/03-source-reading/01-reading-order.md) 解决的是：
 
-`��һ�鿴Դ��ʱ����ʲô˳��������ҡ�`
+`第一遍看源码时，按什么顺序最不容易乱。`
 
-��һƪ������ǰ��һ����������ǣ�
+这一篇继续往前走一步，解决的是：
 
-`������Ĵ���Щ�ؼ���ʱ��Ӧ�þ���ץס��Щ���롢��Щְ����Щ����㡣`
+`当我真的打开这些关键类时，应该具体抓住哪些代码、哪些职责、哪些理解点。`
 
-���仰˵��
+换句话说：
 
-- ��һƪ���㡰·��ͼ��
-- ��һƪ���㡰վ�㽲�⡱
+- 上一篇给你“路线图”
+- 这一篇给你“站点讲解”
 
-��ƪ��Ŀ�겻�����������Դ�����ж��꣬���ǰ��㽨��һ���ǳ�ʵ�õ��Ķ�ϰ�ߣ�
+这篇的目标不是替你把所有源码逐行读完，而是帮你建立一个非常实用的阅读习惯：
 
-`ÿ��һ���ؼ��࣬������������·�︺��ʲô���ٿ�����ؼ��� 1 �� 3 �δ��롣`
+`每打开一个关键类，先问它在主链路里负责什么，再看它最关键的 1 到 3 段代码。`
 
-��������γ����ϰ�ߣ����Դ���˳�ܶࡣ
+如果你能形成这个习惯，框架源码会顺很多。
 
 ---
 
-## 2. �򿪹ؼ���ʱͳһ���� 4 ����������
+## 2. 打开关键类时统一用这 4 个问题来读
 
-����ÿ���࣬�㶼�����Ȱ�ͬһ������ȥ����
+后面每个类，你都可以先按同一套问题去读。
 
-### ���� 1�����������������·���λ����ʲô
+### 问题 1：这个类在整条主链路里的位置是什么
 
-�����ڣ�
+它属于：
 
-- consumer ���
-- ���ñ���
+- consumer 入口
+- 调用编排
 - transport
-- provider ���
-- ����ִ��
-- Spring ����
+- provider 入口
+- 本地执行
+- Spring 集成
 
-�ȸ��ඨλ�����ȿ��������Ҫ��
+先给类定位，比先看代码更重要。
 
-### ���� 2���������ؼ��ķ�������һ��
+### 问题 2：这个类最关键的方法是哪一个
 
-�������з�����ͬ����Ҫ��
+不是所有方法都同等重要。
 
-��һ��ֻץ��ؼ�����ڷ�����
+第一遍只抓最关键的入口方法。
 
-### ���� 3����������ĺ���������ʲô
+### 问题 3：这个类解决的核心问题是什么
 
-���磺
+比如：
 
-- ��������
-- ������
-- ��ַ����
-- ��Ϣ����
-- ����ע��
+- 代理创建
+- 请求构造
+- 地址解析
+- 消息分流
+- 服务注册
 
-### ���� 4��������������һ���ĸ���
+### 问题 4：它会把你带向下一个哪个类
 
-��������Զ�����ڵ����������һ�벻֪�������ߡ���
+这样你永远不会在单个类里“看到一半不知道往哪走”。
 
-����ÿ���࣬�Ҷ����� 4 ���������������
+后面每个类，我都按这 4 个问题来带你读。
 
 ---
 
-## 3. `ExampleConsumerApplication`�����ߴ����￪ʼ
+## 3. `ExampleConsumerApplication`：主线从哪里开始
 
-Դ��λ�ã�
+源码位置：
 - `example-consumer/src/main/java/com/rpc/ExampleConsumerApplication.java`
 
-�ȿ��ؼ����룺
+先看关键代码：
 
 ```java
 @Component
@@ -85,52 +85,52 @@ static class ConsumerRunner implements ApplicationRunner {
 }
 ```
 
-### 3.1 ��������·�е�λ��
+### 3.1 它在主链路中的位置
 
-����ҵ����ڡ�
+这是业务入口。
 
-Ҳ���ǣ�
+也就是：
 
-`����������㡢������ҵ�񿪷��ߵ�һ�㡣`
+`整条链最外层、最贴近业务开发者的一层。`
 
-### 3.2 ����ʱ��ÿ�ʲô
+### 3.2 打开它时最该看什么
 
-ֻ�������£�
+只看三件事：
 
 1. `@RpcReference`
 2. `HelloService`
 3. `helloService.sayHello(...)`
 
-### 3.3 ������ĺ���������ʲô
+### 3.3 它解决的核心问题是什么
 
-�����������ڲ����⣬��ֻ��������չʾ��
+它不解决框架内部问题，它只负责向你展示：
 
-`�����Ŀ��������ҵ�����ʲô������ʹ�� RPC��`
+`这个项目最终想让业务层以什么体验来使用 RPC。`
 
-Ҳ���ǣ�
+也就是：
 
-- д�ӿ�
-- ע��ӿ�
-- �񱾵ص���һ��ȥ������
+- 写接口
+- 注入接口
+- 像本地调用一样去调用它
 
-### 3.4 �����Ժ���Ӧ�ü�����ʲô
+### 3.4 看完以后你应该继续问什么
 
-1. `@RpcReference` ������˭�����ģ�
-2. ����ע���ȥ�Ķ��󵽵���ʲô��
+1. `@RpcReference` 到底是谁处理的？
+2. 这里注入进去的对象到底是什么？
 
-������������Ȼ�������
+所以这个类会自然把你带向：
 
 - `RpcSpringManager`
 - `HelloService`
 
 ---
 
-## 4. `HelloService`��Ϊʲô�ӿ�һ��Ҫ������
+## 4. `HelloService`：为什么接口一定要单独看
 
-Դ��λ�ã�
+源码位置：
 - `example-api/src/main/java/com/rpc/HelloService.java`
 
-�ؼ����룺
+关键代码：
 
 ```java
 public interface HelloService {
@@ -142,44 +142,44 @@ public interface HelloService {
 }
 ```
 
-### 4.1 ��������·�е�λ��
+### 4.1 它在主链路中的位置
 
-��������ĳһ��ִ���������������������ġ�������Լ�㡱��
+它不属于某一条执行链，而是整条链共享的“服务契约层”。
 
-### 4.2 ����ʱ��ÿ�ʲô
+### 4.2 打开它时最该看什么
 
-���Ƿ���ʵ�֣���Ϊ�ӿ�û��ʵ�֡�
+不是方法实现，因为接口没有实现。
 
-���ǿ���
+而是看：
 
-- consumer �� provider �����ı߽���ʲô
-- ������δ�������ӳ�䵽�ӿ�ȫ�޶���
-- ���������������͡�����ֵ����Ϊʲô���� `RpcRequest` �����
+- consumer 和 provider 共享的边界是什么
+- 服务名未来会如何映射到接口全限定名
+- 方法名、参数类型、返回值类型为什么会在 `RpcRequest` 里出现
 
-### 4.3 ������ĺ���������ʲô
+### 4.3 它解决的核心问题是什么
 
-��������˫����ͬ�Ͽɵķ�����Լ��
+它定义了双方共同认可的服务契约。
 
-��Ҳ��Ϊʲô consumer ����Ҫ���� provider ʵ���ࡣ
+这也是为什么 consumer 不需要依赖 provider 实现类。
 
-### 4.4 �����Ժ�Ӧ�ü���ȥ��
+### 4.4 看完以后应该继续去哪
 
-��Ҫȥ�� provider �������Լ��ʵ�֣�
+你要去看 provider 对这个契约的实现：
 
 - `HelloServiceImpl`
 
-ҲҪȥ�� consumer ���Χ�������Լ��������
+也要去看 consumer 如何围绕这个契约生成请求：
 
 - `RpcInvocationHandler`
 
 ---
 
-## 5. `HelloServiceImpl`��Ϊʲô�ȿ��յ����Ҫ
+## 5. `HelloServiceImpl`：为什么先看终点很重要
 
-Դ��λ�ã�
+源码位置：
 - `example-provider/src/main/java/com/rpc/HelloServiceImpl.java`
 
-�ؼ����룺
+关键代码：
 
 ```java
 @RpcService(HelloService.class)
@@ -196,42 +196,42 @@ public class HelloServiceImpl implements HelloService {
 }
 ```
 
-### 5.1 ��������·�е�λ��
+### 5.1 它在主链路中的位置
 
-���� provider ��ҵ��ִ�е��������֮һ��
+它是 provider 侧业务执行的最终落点之一。
 
-### 5.2 ����ʱ��ÿ�ʲô
+### 5.2 打开它时最该看什么
 
-ֻ�������£�
+只看两件事：
 
 1. `@RpcService(HelloService.class)`
-2. ��ͨҵ�񷽷�ʵ��
+2. 普通业务方法实现
 
-### 5.3 ������ĺ���������ʲô
+### 5.3 它解决的核心问题是什么
 
-�����������������̣�����������㣺
+它本身不负责框架流程，它负责告诉你：
 
-`Զ���������ջᱻ��ԭ�������ı���ҵ�����ִ�С�`
+`远程请求最终会被还原成怎样的本地业务代码执行。`
 
-### 5.4 Ϊʲô��һ���Ҫ����
+### 5.4 为什么第一遍就要看它
 
-��Ϊ����㲻֪������������������ǰ��ܶ�����Ե����ڿ���Ʈ��
+因为如果你不知道整条链最后落在哪里，前面很多类会显得像在空中飘。
 
-�������Ժ����֪����
+看了它以后，你会知道：
 
-- ǰ������и��Ӷ�
-- ���ն�ֻ��Ϊ�˰ѵ��ð��˵�����
+- 前面的所有复杂度
+- 最终都只是为了把调用搬运到这里
 
-���������Ķ����ȡ�
+这会让你的阅读更稳。
 
 ---
 
-## 6. `RpcSpringManager`������ʱ��Ҫ�ȱ��ӿ��б��ŵ�
+## 6. `RpcSpringManager`：打开它时不要先被接口列表吓到
 
-Դ��λ�ã�
+源码位置：
 - `rpc-spring/src/main/java/com/rpc/spring/RpcSpringManager.java`
 
-�ؼ�����һ��consumer ע��
+关键代码一：consumer 注入
 
 ```java
 @Override
@@ -251,7 +251,7 @@ private void injectReference(Object bean, Field field) {
 }
 ```
 
-�ؼ��������provider ����
+关键代码二：provider 发布
 
 ```java
 @Override
@@ -269,46 +269,46 @@ public void start() {
 }
 ```
 
-### 6.1 ��������·�е�λ��
+### 6.1 它在主链路中的位置
 
-���� Spring �������ࡣ
+这是 Spring 集成中枢。
 
-### 6.2 ����ʱ��ÿ�ʲô
+### 6.2 打开它时最该看什么
 
-��Ҫ��ͼһ�����Ե���ʵ�ֵ����� Spring �ӿڡ�
+不要试图一上来吃掉它实现的所有 Spring 接口。
 
-��һ��ֻ�����������ߣ�
+第一遍只看两条动作线：
 
-1. �� Bean ��ʼ��ǰע�� `@RpcReference`
-2. �����������󷢲� `@RpcService`
+1. 在 Bean 初始化前注入 `@RpcReference`
+2. 在容器启动后发布 `@RpcService`
 
-### 6.3 ������ĺ���������ʲô
+### 6.3 它解决的核心问题是什么
 
-`�� rpc-core ��������ȷ���� Spring �������ڡ�`
+`把 rpc-core 的能力正确接入 Spring 生命周期。`
 
-### 6.4 �����׺��Ե��Ķ��ص�
+### 6.4 最容易忽略的阅读重点
 
-���Լ�������������Ҳ��ֱ��ʵ������ͨ�š�
+它自己不生产代理，也不直接实现网络通信。
 
-�����������ǣ�
+它真正做的是：
 
-- ȷ����ʱע�� consumer ����
-- ȷ����ʱ���� provider ����
-- �����Ƿ����������������� / bootstrap
+- 确定何时注入 consumer 代理
+- 确定何时发布 provider 服务
+- 决定是否复用容器中已有配置 / bootstrap
 
-### 6.5 �������������
+### 6.5 它把你带向哪里
 
 - `RpcConsumerBootstrap`
 - `RpcProviderBootstrap`
 
 ---
 
-## 7. `RpcConsumerBootstrap`������ʱ�������ֶ���û
+## 7. `RpcConsumerBootstrap`：打开它时别被配置字段淹没
 
-Դ��λ�ã�
+源码位置：
 - `rpc-core/src/main/java/com/rpc/core/api/bootstrap/RpcConsumerBootstrap.java`
 
-�ؼ����룺
+关键代码：
 
 ```java
 public static RpcConsumerBootstrap fromConfig(RpcFrameworkConfig frameworkConfig) {
@@ -339,32 +339,32 @@ public <T> T getService(Class<T> serviceClass) {
 }
 ```
 
-### 7.1 ��������·�е�λ��
+### 7.1 它在主链路中的位置
 
-consumer ����װ����ڡ�
+consumer 侧总装配入口。
 
-### 7.2 ����ʱ��ÿ�ʲô
+### 7.2 打开它时最该看什么
 
-�ȿ���װ����Щ����������Ҫ�ȿ���ÿ�������ֶ�ʲô��˼����
+先看“装了哪些东西”，不要先看“每个配置字段什么意思”。
 
-��Ӧ����ʶ�����
+你应该先识别出：
 
-- ���ý����
-- �����ִ�����
-- transport ������
-- �����������
+- 配置进入点
+- 服务发现创建点
+- transport 创建点
+- 代理工厂入口
 
-### 7.3 ������ĺ���������ʲô
+### 7.3 它解决的核心问题是什么
 
-`�� consumer �ˣ���Զ�̵�������ĺ��Ļ�����ʩ����װ������`
+`在 consumer 端，把远程调用所需的核心基础设施先组装起来。`
 
-### 7.4 �����״������Ķ��ص�
+### 7.4 最容易错过的阅读重点
 
-`getService(...)` ���ǡ���ȡʵ���ࡱ�����ǡ���ȡ�������󡱡�
+`getService(...)` 不是“获取实现类”，而是“获取代理对象”。
 
-���������㿴©�ˣ�����ܶ�������λ��
+这件事如果你看漏了，后面很多理解会错位。
 
-### 7.5 �������������
+### 7.5 它把你带向哪里
 
 - `RpcProxyFactory`
 - `RpcFrameworkConfig`
@@ -372,12 +372,12 @@ consumer ����װ����ڡ�
 
 ---
 
-## 8. `RpcProxyFactory`������ʱҪ��ס��������������һ����
+## 8. `RpcProxyFactory`：打开它时要盯住“代理创建”这一个点
 
-Դ��λ�ã�
+源码位置：
 - `rpc-core/src/main/java/com/rpc/core/invoke/proxy/RpcProxyFactory.java`
 
-�ؼ����룺
+关键代码：
 
 ```java
 public <T> T createProxyInstance(Class<T> serviceClass) {
@@ -398,45 +398,45 @@ public <T> T createProxyBySDKInstance(Class<T> serviceClass) {
 }
 ```
 
-### 8.1 ��������·�е�λ��
+### 8.1 它在主链路中的位置
 
-consumer ��ڲ���ġ���������������
+consumer 入口层里的“代理生成器”。
 
-### 8.2 ����ʱ��ÿ�ʲô
+### 8.2 打开它时最该看什么
 
-ֻ���������£�
+只看这三件事：
 
-1. Ϊʲô�ӿڻ��� JDK ��̬����
-2. Ϊʲô�����ص����� `RpcInvocationHandler`
-3. ����Ҫһ���Ѿ���ʼ���õ� `RpcTransport`
+1. 为什么接口会走 JDK 动态代理
+2. 为什么代理回调的是 `RpcInvocationHandler`
+3. 它需要一个已经初始化好的 `RpcTransport`
 
-### 8.3 ������ĺ���������ʲô
+### 8.3 它解决的核心问题是什么
 
-`��һ������ӿڰ�װ��һ�������ط������õĴ�������`
+`把一个服务接口包装成一个可拦截方法调用的代理对象。`
 
-### 8.4 �����׶�ƫ�ĵط�
+### 8.4 最容易读偏的地方
 
-�ܶ��˿��� CGLIB / JDK ������֧�Ϳ�ʼ�꼼��ϸ�ڡ�
+很多人看到 CGLIB / JDK 代理分支就开始钻技术细节。
 
-��һ�鲻ֵ�á�
+第一遍不值得。
 
-��һ��ֻҪץס��
+第一遍只要抓住：
 
-- ����������������
-- ���������������õ��� handler
+- 代理对象从这里产生
+- 真正处理方法调用的是 handler
 
-### 8.5 �������������
+### 8.5 它把你带向哪里
 
 - `RpcInvocationHandler`
 
 ---
 
-## 9. `RpcInvocationHandler`�������Ҫ����
+## 9. `RpcInvocationHandler`：这个类要精读
 
-Դ��λ�ã�
+源码位置：
 - `rpc-core/src/main/java/com/rpc/core/invoke/proxy/impl/RpcInvocationHandler.java`
 
-�ؼ����룺
+关键代码：
 
 ```java
 @Override
@@ -478,42 +478,42 @@ public Object invoke(Object proxy, Method method, Object[] args) throws Throwabl
 }
 ```
 
-### 9.1 ��������·�е�λ��
+### 9.1 它在主链路中的位置
 
-���ط�������ת��Ϊ RPC ����ĵ�һ�ֳ���
+本地方法调用转换为 RPC 请求的第一现场。
 
-### 9.2 ����ʱ��ÿ�ʲô
+### 9.2 打开它时最该看什么
 
-�ص㿴 4 �Σ�
+重点看 4 段：
 
-1. ���� `Object` �Դ�����
-2. ���� `RpcContext`
-3. ���� `RpcRequest`
-4. ���������� consumer filter �������� transport
+1. 屏蔽 `Object` 自带方法
+2. 创建 `RpcContext`
+3. 构造 `RpcRequest`
+4. 把请求送入 consumer filter 链并交给 transport
 
-### 9.3 ������ĺ���������ʲô
+### 9.3 它解决的核心问题是什么
 
-`��һ����ͨ Java �������÷����һ�ݿ�Զ�̴���� RpcRequest��`
+`把一次普通 Java 方法调用翻译成一份可远程传输的 RpcRequest。`
 
-### 9.4 Ϊʲô�����Ҫ����
+### 9.4 为什么这个类要精读
 
-��Ϊ���ǡ���������ݡ��ĵط���
+因为这是“概念变数据”的地方。
 
-ǰ����һֱ��˵����ܻ�ѷ�������ת�����󡱣���������ش���������
+前面你一直在说“框架会把方法调用转成请求”，真正的落地代码就在这里。
 
-### 9.5 �������������
+### 9.5 它把你带向哪里
 
 - `RpcClientInvocationExecutor`
-- consumer filter ��ϵ
+- consumer filter 体系
 
 ---
 
-## 10. `RpcClientInvocationExecutor`������ consumer ���������
+## 10. `RpcClientInvocationExecutor`：这是 consumer 侧编排中枢
 
-Դ��λ�ã�
+源码位置：
 - `rpc-core/src/main/java/com/rpc/core/transport/netty/client/invocation/RpcClientInvocationExecutor.java`
 
-�ؼ����룺
+关键代码：
 
 ```java
 public RpcResponse execute(RpcRequest rpcRequest, RpcTransportInvoker transportInvoker) throws Exception {
@@ -551,33 +551,33 @@ private RpcResponse invokeWithCluster(RpcRequest rpcRequest,
 }
 ```
 
-### 10.1 ��������·�е�λ��
+### 10.1 它在主链路中的位置
 
-consumer ����ñ������ġ�
+consumer 侧调用编排中心。
 
-### 10.2 ����ʱ��ÿ�ʲô
+### 10.2 打开它时最该看什么
 
-���ȿ��⼸��˳��
+优先看这几层顺序：
 
-1. ��������������
-2. ��������
-3. ���� invoker ��������
-4. ���뼯Ⱥ����
-5. ������ַ����������
+1. 解析方法级配置
+2. 调用限流
+3. 调用 invoker 过滤器链
+4. 进入集群策略
+5. 解析地址并真正发送
 
-### 10.3 ������ĺ���������ʲô
+### 10.3 它解决的核心问题是什么
 
-`��һ��������֯��һ��������ִ�е�Զ�̵������̡�`
+`把一次请求组织成一套真正可执行的远程调用流程。`
 
-### 10.4 �����׻����ĵ�
+### 10.4 最容易混淆的点
 
-������ transport��Ҳ���Ǵ�����
+它不是 transport，也不是代理。
 
-- ���������ס���
-- transport ��������������
-- ������������֮���������ñ��š�
+- 代理负责接住入口
+- transport 负责真正发请求
+- 它负责在两者之间做“调用编排”
 
-### 10.5 �������������
+### 10.5 它把你带向哪里
 
 - `RpcNettyClient`
 - `RetryExecutor`
@@ -586,12 +586,12 @@ consumer ����ñ������ġ�
 
 ---
 
-## 11. `RpcNettyClient`�����ﲻҪֻ�� Netty �﷨
+## 11. `RpcNettyClient`：这里不要只看 Netty 语法
 
-Դ��λ�ã�
+源码位置：
 - `rpc-core/src/main/java/com/rpc/core/transport/netty/client/RpcNettyClient.java`
 
-�ؼ�����һ��ͳһ���
+关键代码一：统一入口
 
 ```java
 @Override
@@ -600,7 +600,7 @@ public RpcResponse sendRequest(RpcRequest rpcRequest) throws Exception {
 }
 ```
 
-�ؼ�����������͵�Ŀ���ַ
+关键代码二：发送到目标地址
 
 ```java
 private RpcResponse sendRequestToAddress(RpcRequest rpcRequest, InetSocketAddress address) throws Exception {
@@ -616,7 +616,7 @@ private RpcResponse sendRequestToAddress(RpcRequest rpcRequest, InetSocketAddres
 }
 ```
 
-�ؼ�������������Э����Ϣ
+关键代码三：构造协议消息
 
 ```java
 private RpcMessage buildRequestMessage(RpcRequest rpcRequest, long requestId) {
@@ -636,45 +636,45 @@ private RpcMessage buildRequestMessage(RpcRequest rpcRequest, long requestId) {
 }
 ```
 
-### 11.1 ��������·�е�λ��
+### 11.1 它在主链路中的位置
 
-transport ����ķ���ʵ�֡�
+transport 层核心发送实现。
 
-### 11.2 ����ʱ��ÿ�ʲô
+### 11.2 打开它时最该看什么
 
-��Ҫһ������ Netty API ϸ����ס��
+不要一上来被 Netty API 细节拖住。
 
-��ֻ���⼸�����⣺
+先只看这几个问题：
 
-1. ������ʲôʱ��������ת�� `RpcMessage` ��
-2. `requestId` �� future ����ô����������
-3. Ϊʲôͬ���ӿ���۵ײ������첽��Ӧƥ��
-4. pipeline �������Щ�ؼ�������
+1. 请求是什么时候真正被转成 `RpcMessage` 的
+2. `requestId` 和 future 是怎么关联起来的
+3. 为什么同步接口外观底层仍是异步响应匹配
+4. pipeline 里挂了哪些关键处理器
 
-### 11.3 ������ĺ���������ʲô
+### 11.3 它解决的核心问题是什么
 
-`���Ѿ���֯�õ� RpcRequest ����ͨ�����緢��ȥ��������Ӧ�ӻ�����`
+`把已经组织好的 RpcRequest 真正通过网络发出去，并把响应接回来。`
 
-### 11.4 ��ֵ�ü�ס��һ��
+### 11.4 最值得记住的一点
 
-��������ǡ���ô���������ǡ����Ӧ����ô������
+它负责的是“怎么发”，不是“这次应该怎么调”。
 
-��� `RpcClientInvocationExecutor` ��ְ���Ƿֿ��ġ�
+这和 `RpcClientInvocationExecutor` 的职责是分开的。
 
-### 11.5 �������������
+### 11.5 它把你带向哪里
 
 - `RpcProtocolEncoder`
 - `RpcProtocolDecoder`
-- provider ��ڲ���
+- provider 入口侧类
 
 ---
 
-## 12. `RpcProviderBootstrap`������ʱ�ص㿴����������ô��¶�ġ�
+## 12. `RpcProviderBootstrap`：看它时重点看“服务是怎么暴露的”
 
-Դ��λ�ã�
+源码位置：
 - `rpc-core/src/main/java/com/rpc/core/api/bootstrap/RpcProviderBootstrap.java`
 
-�ؼ����룺
+关键代码：
 
 ```java
 public RpcProviderBootstrap registerService(Class<?> serviceInterface, Object serviceImpl) {
@@ -692,40 +692,40 @@ public void start() throws Exception {
 }
 ```
 
-### 12.1 ��������·�е�λ��
+### 12.1 它在主链路中的位置
 
-provider ����װ����ڡ�
+provider 侧总装配入口。
 
-### 12.2 ����ʱ��ÿ�ʲô
+### 12.2 打开它时最该看什么
 
-��һ��Ϳ��������ߣ�
+第一遍就看两条主线：
 
-1. ������ô��ע�ᵽ����ע���
-2. ���������ʲôʱ��������ʼ����
+1. 服务怎么被注册到本地注册表
+2. 服务端网络什么时候真正开始监听
 
-### 12.3 ������ĺ���������ʲô
+### 12.3 它解决的核心问题是什么
 
-`�� provider �˵ķ������ͷ���˻�����ʩ��֯������`
+`把 provider 端的服务对象和服务端基础设施组织起来。`
 
-### 12.4 Ϊʲô����������ĸ���Ҫ
+### 12.4 为什么这个类比你想的更重要
 
-�ܶ��˻���� provider ������Ҫ����ҵ��ʵ���ࡣ
+很多人会觉得 provider 端最重要的是业务实现类。
 
-�����û�� `RpcProviderBootstrap`���������������ᱻ��ȷ�ҵ� RPC �������ϵ�
+但如果没有 `RpcProviderBootstrap`，服务对象根本不会被正确挂到 RPC 服务端体系里。
 
-### 12.5 �������������
+### 12.5 它把你带向哪里
 
 - `RpcRequestDispatcher`
 - `LocalRegistry`
 
 ---
 
-## 13. `RpcRequestDispatcher`��provider ����������Ƿ���������ִ��ҵ��
+## 13. `RpcRequestDispatcher`：provider 入口先做的是分流，不是执行业务
 
-Դ��λ�ã�
+源码位置：
 - `rpc-core/src/main/java/com/rpc/core/transport/netty/server/dispatch/RpcRequestDispatcher.java`
 
-�ؼ����룺
+关键代码：
 
 ```java
 @Override
@@ -756,28 +756,28 @@ private RpcMessage handleBusinessRequest(RpcMessage requestMessage) {
 }
 ```
 
-### 13.1 ��������·�е�λ��
+### 13.1 它在主链路中的位置
 
-provider ��Ϣ��ڷ�������
+provider 消息入口分流器。
 
-### 13.2 ����ʱ��ÿ�ʲô
+### 13.2 打开它时最该看什么
 
-�ȿ�������֧��
+先看两条分支：
 
-1. ����������ô����
-2. ҵ��������ôת����ִ����
+1. 心跳请求怎么处理
+2. 业务请求怎么转交给执行器
 
-### 13.3 ������ĺ���������ʲô
+### 13.3 它解决的核心问题是什么
 
-`�� provider �յ���Ϣ֮�����ж��⵽����ʲô���͵���Ϣ���پ�����������������`
+`在 provider 收到消息之后，先判断这到底是什么类型的消息，再决定走哪条处理链。`
 
-### 13.4 �����׿�©�ĵ�
+### 13.4 最容易看漏的点
 
-������ҵ��ִ������
+它不是业务执行器。
 
-��������ǡ���ڷ����������ǡ�����ִ��ҵ�񷽷�����
+它负责的是“入口分流”，不是“最终执行业务方法”。
 
-### 13.5 �������������
+### 13.5 它把你带向哪里
 
 - `RpcRequestExecutor`
 - `RpcHeader`
@@ -785,69 +785,69 @@ provider ��Ϣ��ڷ�������
 
 ---
 
-## 14. һ�š��ؼ�������ͼ��
+## 14. 一张“关键类作用图”
 
 ```mermaid
 graph TD
-    A["ExampleConsumerApplication"] --> B["չʾҵ��������"]
-    C["RpcSpringManager"] --> D["ע�� RpcReference / ���� RpcService"]
-    E["RpcConsumerBootstrap"] --> F["��װ consumer ������ʩ"]
-    G["RpcProxyFactory"] --> H["������������"]
-    I["RpcInvocationHandler"] --> J["�������� -> RpcRequest"]
-    K["RpcClientInvocationExecutor"] --> L["���ñ���"]
-    M["RpcNettyClient"] --> N["������������"]
-    O["RpcProviderBootstrap"] --> P["��װ provider �����"]
-    Q["RpcRequestDispatcher"] --> R["provider ��ڷ���"]
+    A["ExampleConsumerApplication"] --> B["展示业务调用入口"]
+    C["RpcSpringManager"] --> D["注入 RpcReference / 发布 RpcService"]
+    E["RpcConsumerBootstrap"] --> F["组装 consumer 基础设施"]
+    G["RpcProxyFactory"] --> H["创建代理对象"]
+    I["RpcInvocationHandler"] --> J["方法调用 -> RpcRequest"]
+    K["RpcClientInvocationExecutor"] --> L["调用编排"]
+    M["RpcNettyClient"] --> N["真正发送请求"]
+    O["RpcProviderBootstrap"] --> P["组装 provider 服务端"]
+    Q["RpcRequestDispatcher"] --> R["provider 入口分流"]
 ```
 
-�����ÿ����һ���࣬���ܰ����ŵ�����ͼ�����Ķ�����ȡ�
+如果你每看完一个类，都能把它放到这张图里，你的阅读会很稳。
 
 ---
 
-## 15. ����Щ��ʱ����Щ������һ�����������
+## 15. 读这些类时，哪些东西第一遍可以先跳过
 
-Ϊ�˱����Ķ�ѹ������������Щ���ݵ�һ�鶼����ֻ������֪�����ڡ�������ǿ����ȫ��͸��
+为了避免阅读压力过大，下面这些内容第一遍都可以只做到“知道存在”，不用强求完全吃透：
 
-1. ÿ��������ʵ��ϸ��
-2. ÿ�� SPI ��չʵ��ϸ��
-3. ÿ�� Netty handler ������Դ��
-4. ÿ��������ı߽����
-5. ÿ���쳣��֧����־��֧
-6. ÿ��������͸�������
+1. 每个过滤器实现细节
+2. 每个 SPI 扩展实现细节
+3. 每个 Netty handler 的完整源码
+4. 每个配置项的边界情况
+5. 每个异常分支和日志分支
+6. 每个工具类和辅助方法
 
-Ϊʲô��
+为什么？
 
-��Ϊ��Щ����������ǰ�ᣬ�����Ѿ�֪���Լ���������·����һ�Ρ�
+因为这些东西的理解前提，是你已经知道自己处在主链路的哪一段。
 
-������ץ�����̣��ٲ�ϸ�ڣ�������ߡ�
-
----
-
-## 16. ������һƪ����Ӧ�ôﵽ��״̬
-
-�������Ӧ��������������Щ�£�
-
-1. �򿪹ؼ���ʱ������ֻ�ǡ��������¿����롱
-2. ����˵�������������·�е�λ��
-3. ��ץס�������ؼ��� 1 �� 3 �δ���
-4. ��֪��������ĺ�������
-5. ��֪����Ӧ�ð��������һ���ĸ���
-
-������Ѿ���������Դ�룬˵�����Ѿ��ӡ������������ߡ��л�����������������롱��״̬�ˡ�
+所以先抓主流程，再补细节，收益最高。
 
 ---
 
-## 17. ��һƪ��ʲô
+## 16. 读完这一篇后，你应该达到的状态
 
-��һƪ�� [03-glossary-and-class-map.md](D:/aaaRPC/my-rpc-framework/doc/03-source-reading/03-glossary-and-class-map.md)��
+到这里，你应该能做到下面这些事：
 
-��һƪ����Ķ������������׻����������ϵ����̯��������֮��Դ��ʱ���ٷ������ڴ����ϡ�
+1. 打开关键类时，不再只是“从上往下看代码”
+2. 能先说出这个类在主链路中的位置
+3. 能抓住这个类最关键的 1 到 3 段代码
+4. 能知道它解决的核心问题
+5. 能知道它应该把你带向下一个哪个类
+
+如果你已经能这样读源码，说明你已经从“被代码拖着走”切换到“带着问题读代码”的状态了。
 
 ---
 
-## 18. ��ƪԴ�붨λ
+## 17. 下一篇看什么
 
-�����ص����Щ�ļ������Ķ���
+下一篇是 [03-glossary-and-class-map.md](D:/aaaRPC/my-rpc-framework/doc/03-source-reading/03-glossary-and-class-map.md)。
+
+这一篇会把阅读过程中最容易混的术语和类关系彻底摊开，让你之后看源码时不再反复卡在词义上。
+
+---
+
+## 18. 本篇源码定位
+
+建议重点打开这些文件对照阅读：
 
 - `example-consumer/src/main/java/com/rpc/ExampleConsumerApplication.java`
 - `example-api/src/main/java/com/rpc/HelloService.java`

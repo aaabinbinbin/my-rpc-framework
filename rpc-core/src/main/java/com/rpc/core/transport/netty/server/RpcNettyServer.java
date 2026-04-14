@@ -1,18 +1,18 @@
-﻿package com.rpc.core.transport.netty.server;
+package com.rpc.core.transport.netty.server;
 
 import com.rpc.core.protocol.codec.RpcProtocolDecoder;
 import com.rpc.core.protocol.codec.RpcProtocolEncoder;
 import com.rpc.core.registry.LocalRegistry;
 import com.rpc.core.registry.ServiceRegistry;
-import com.rpc.core.registry.impl.LocalRegistryImpl;
+import com.rpc.core.registry.local.LocalRegistryImpl;
 import com.rpc.core.runtime.server.BizThreadPool;
 import com.rpc.core.runtime.server.ServerLifecycle;
 import com.rpc.core.transport.RpcServer;
-import com.rpc.core.transport.netty.server.config.RpcServerConfig;
+import com.rpc.core.config.server.RpcServerConfig;
 import com.rpc.core.transport.netty.server.dispatch.RpcRequestDispatcher;
 import com.rpc.core.transport.netty.server.dispatch.RpcRequestExecutor;
 import com.rpc.core.transport.netty.server.handler.RpcRequestHandler;
-import com.rpc.core.transport.netty.server.handler.heart.ServerHeartbeatHandler;
+import com.rpc.core.transport.netty.server.handler.heartbeat.ServerHeartbeatHandler;
 import com.rpc.core.transport.netty.server.statistics.StatisticsManager;
 import com.rpc.core.transport.server.RpcRequestProcessor;
 import io.netty.bootstrap.ServerBootstrap;
@@ -24,7 +24,6 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.timeout.IdleStateHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.net.InetSocketAddress;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 基于 Netty 的服务端实现。
@@ -60,6 +60,8 @@ public class RpcNettyServer implements RpcServer {
     private EventLoopGroup workerGroup;
     /** 服务端监听 Channel，用于 shutdown 时主动关闭端口监听。 */
     private Channel serverChannel;
+    /** 防止 shutdown 流程重复执行。 */
+    private final AtomicBoolean shutdownStarted = new AtomicBoolean(false);
 
     /**
      * 创建 Netty 服务端。
@@ -78,7 +80,7 @@ public class RpcNettyServer implements RpcServer {
                 config.getBizQueueCapacity()
         );
         this.requestProcessor = new RpcRequestDispatcher(
-                new RpcRequestExecutor(localRegistry, bizExecutor, serverLifecycle),
+                new RpcRequestExecutor(localRegistry, serverLifecycle),
                 serverLifecycle
         );
     }
@@ -98,10 +100,12 @@ public class RpcNettyServer implements RpcServer {
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
-                    .handler(new LoggingHandler(LogLevel.INFO))
                     .childOption(ChannelOption.TCP_NODELAY, true)
-                    .childOption(ChannelOption.SO_KEEPALIVE, true)
-                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                    .childOption(ChannelOption.SO_KEEPALIVE, true);
+            if (log.isDebugEnabled()) {
+                bootstrap.handler(new LoggingHandler(getClass(), io.netty.handler.logging.LogLevel.DEBUG));
+            }
+            bootstrap.childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
                             // 服务端 pipeline 的顺序很关键：
@@ -120,11 +124,11 @@ public class RpcNettyServer implements RpcServer {
                                     .addLast("serverHeartbeatHandler", new ServerHeartbeatHandler())
                                     .addLast("decoder", new RpcProtocolDecoder())
                                     .addLast("encoder", new RpcProtocolEncoder())
-                                    .addLast("handler", new RpcRequestHandler(requestProcessor));
+                                    .addLast("handler", new RpcRequestHandler(requestProcessor, bizExecutor));
                         }
                     });
 
-            ChannelFuture future = bootstrap.bind(new InetSocketAddress(config.getPort())).sync();
+            ChannelFuture future = bootstrap.bind(new InetSocketAddress(config.getHost(), config.getPort())).sync();
             serverChannel = future.channel();
             // 阻塞等待 closeFuture，表示当前线程托管整个 server 生命周期。
             future.channel().closeFuture().sync();
@@ -144,13 +148,16 @@ public class RpcNettyServer implements RpcServer {
      * 4. 最后关闭网络和线程池。
      */
     public void shutdown() {
+        if (!shutdownStarted.compareAndSet(false, true)) {
+            return;
+        }
         serverLifecycle.stopAcceptingRequests();
-        unregisterAllServices();
-        serverLifecycle.awaitDrained(config.getShutdownTimeout(), TimeUnit.SECONDS);
 
         if (serverChannel != null) {
             serverChannel.close().awaitUninterruptibly(config.getShutdownTimeout(), TimeUnit.SECONDS);
         }
+        serverLifecycle.awaitDrained(config.getShutdownTimeout(), TimeUnit.SECONDS);
+        unregisterAllServices();
         if (bossGroup != null) {
             bossGroup.shutdownGracefully().awaitUninterruptibly(config.getShutdownTimeout(), TimeUnit.SECONDS);
         }

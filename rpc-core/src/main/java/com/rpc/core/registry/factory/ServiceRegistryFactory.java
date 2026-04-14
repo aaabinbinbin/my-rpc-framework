@@ -1,10 +1,10 @@
-﻿package com.rpc.core.registry.factory;
+package com.rpc.core.registry.factory;
 
-import com.rpc.core.config.RpcFrameworkConfig;
+import com.rpc.core.config.framework.RpcFrameworkConfig;
 import com.rpc.core.discovery.ServiceDiscovery;
 import com.rpc.core.registry.RegistryType;
 import com.rpc.core.registry.ServiceRegistry;
-import com.rpc.core.registry.impl.ZooKeeperRegistryImpl;
+import com.rpc.core.registry.zookeeper.ZooKeeperRegistryImpl;
 
 /**
  * 注册中心 / 服务发现工厂。

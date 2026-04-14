@@ -1,10 +1,10 @@
-﻿package com.rpc.core.resilience.retry;
+package com.rpc.core.resilience.retry;
 
-import com.rpc.core.common.constant.ErrorCode;
 import com.rpc.core.common.exception.RpcException;
+import com.rpc.core.common.exception.RpcExceptionMapper;
 import com.rpc.core.resilience.RetryStrategy;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.Callable;
@@ -50,20 +50,37 @@ public class RetryExecutor {
         while (true) {
             try {
                 return callable.call();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
             } catch (RpcException e) {
                 if (!retryStrategy.shouldRetry(e, retryCount, maxRetriesOverride)) {
                     throw e;
                 }
                 retryCount++;
-                TimeUnit.MILLISECONDS.sleep(retryStrategy.getDelay(retryCount));
+                sleepBeforeRetry(retryCount);
             } catch (Exception e) {
-                RpcException wrapped = new RpcException(ErrorCode.SERVER_ERROR, "Unknown rpc invoke error", e);
-                if (!retryStrategy.shouldRetry(wrapped, retryCount, maxRetriesOverride)) {
+                Exception mapped = RpcExceptionMapper.fromTransport(e);
+                if (!(mapped instanceof RpcException rpcException)) {
                     throw e;
                 }
+
+                if (!retryStrategy.shouldRetry(rpcException, retryCount, maxRetriesOverride)) {
+                    throw rpcException;
+                }
+
                 retryCount++;
-                TimeUnit.MILLISECONDS.sleep(retryStrategy.getDelay(retryCount));
+                sleepBeforeRetry(retryCount);
             }
+        }
+    }
+
+    private void sleepBeforeRetry(int retryCount) throws InterruptedException {
+        try {
+            TimeUnit.MILLISECONDS.sleep(retryStrategy.getDelay(retryCount));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
         }
     }
 }

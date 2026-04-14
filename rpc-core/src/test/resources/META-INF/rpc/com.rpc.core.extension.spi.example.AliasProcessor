@@ -1,0 +1,2 @@
+aliasA=com.rpc.core.extension.spi.example.AliasProcessorImpl
+aliasB=com.rpc.core.extension.spi.example.AliasProcessorImpl

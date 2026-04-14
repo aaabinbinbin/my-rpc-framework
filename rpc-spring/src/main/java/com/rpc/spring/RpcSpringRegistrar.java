@@ -26,6 +26,18 @@ import java.util.Set;
  * RpcSpringRegistrar 不是实例化 Bean，它只是告诉 Spring：“这里有个类，将来你要把它当 Bean 创建出来。
  */
 public class RpcSpringRegistrar implements ImportBeanDefinitionRegistrar {
+    /**
+     * 在 BeanDefinition 注册阶段向容器补充 RPC 基础设施和服务实现类。
+     *
+     * 处理流程：
+     * 1. 先确保 RpcSpringManager 已经注册，后续才能完成引用注入和服务发布。
+     * 2. 再解析 @EnableRpc 的 scanPackages，扫描并注册 @RpcService 实现类。
+     *
+     * 边界处理：重复注册时跳过已有 BeanDefinition，避免覆盖用户显式声明的 Bean。
+     *
+     * @param importingClassMetadata 标注 @EnableRpc 的导入类元数据
+     * @param registry Spring BeanDefinition 注册表
+     */
     @Override
     public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry registry) {
         if (!registry.containsBeanDefinition(RpcSpringManager.class.getName())) {
@@ -38,6 +50,15 @@ public class RpcSpringRegistrar implements ImportBeanDefinitionRegistrar {
         }
     }
 
+    /**
+     * 扫描指定包下的 @RpcService 类并注册为 Spring BeanDefinition。
+     *
+     * 所处阶段：仍然是容器启动早期的定义注册阶段，不会实例化服务对象。
+     * 注意事项：这里只注册服务 Bean，真正的 RPC 端口监听和注册中心注册由 RpcSpringManager.start() 完成。
+     *
+     * @param basePackage 需要扫描的基础包
+     * @param registry Spring BeanDefinition 注册表
+     */
     private void registerAnnotatedServices(String basePackage, BeanDefinitionRegistry registry) {
         ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
         scanner.addIncludeFilter(new AnnotationTypeFilter(RpcService.class));
@@ -55,6 +76,14 @@ public class RpcSpringRegistrar implements ImportBeanDefinitionRegistrar {
         }
     }
 
+    /**
+     * 解析 @EnableRpc 指定的扫描包。
+     *
+     * 边界处理：如果用户没有显式配置扫描包，则回退到启用类所在包，减少使用 RPC 框架时的样板配置。
+     *
+     * @param metadata 标注 @EnableRpc 的类元数据
+     * @return 去重且保持声明顺序的扫描包集合
+     */
     private Set<String> resolveScanPackages(AnnotationMetadata metadata) {
         Map<String, Object> attributesMap = metadata.getAnnotationAttributes(EnableRpc.class.getName());
         AnnotationAttributes attributes = AnnotationAttributes.fromMap(attributesMap);
@@ -73,4 +102,3 @@ public class RpcSpringRegistrar implements ImportBeanDefinitionRegistrar {
         return packages;
     }
 }
-

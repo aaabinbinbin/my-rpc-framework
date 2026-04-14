@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -16,27 +18,21 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class ConsistentHashLoadBalancer implements LoadBalancer {
     private static final int VIRTUAL_NODES = 160;
-    private final ConcurrentHashMap<String, TreeMap<Integer, String>> rings = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, RingState> rings = new ConcurrentHashMap<>();
 
     @Override
     public InetSocketAddress select(String serviceName, List<InetSocketAddress> addresses) {
-        if (addresses == null || addresses.isEmpty()) {
+        if (addresses == null || addresses.isEmpty() || serviceName == null || serviceName.isBlank()) {
             return null;
         }
 
-        TreeMap<Integer, String> ring = rings.computeIfAbsent(serviceName, ignored -> {
-            TreeMap<Integer, String> newRing = new TreeMap<>();
-            for (InetSocketAddress address : addresses) {
-                addVirtualNodes(newRing, address);
+        String signature = buildAddressSignature(addresses);
+        TreeMap<Integer, String> ring = rings.compute(serviceName, (ignored, existing) -> {
+            if (existing != null && existing.signature().equals(signature)) {
+                return existing;
             }
-            return newRing;
-        });
-
-        if (ring.isEmpty()) {
-            for (InetSocketAddress address : addresses) {
-                addVirtualNodes(ring, address);
-            }
-        }
+            return new RingState(signature, buildRing(addresses));
+        }).ring();
 
         int hash = murmurHash(serviceName.getBytes(StandardCharsets.UTF_8));
         SortedMap<Integer, String> tailMap = ring.tailMap(hash);
@@ -49,6 +45,14 @@ public class ConsistentHashLoadBalancer implements LoadBalancer {
     @Override
     public String getName() {
         return "consistentHash";
+    }
+
+    private TreeMap<Integer, String> buildRing(List<InetSocketAddress> addresses) {
+        TreeMap<Integer, String> ring = new TreeMap<>();
+        for (InetSocketAddress address : addresses) {
+            addVirtualNodes(ring, address);
+        }
+        return ring;
     }
 
     private void addVirtualNodes(TreeMap<Integer, String> ring, InetSocketAddress address) {
@@ -100,11 +104,23 @@ public class ConsistentHashLoadBalancer implements LoadBalancer {
     }
 
     private String addressToString(InetSocketAddress address) {
-        return address.getAddress().getHostAddress() + ":" + address.getPort();
+        return address.getHostString() + ":" + address.getPort();
     }
 
     private InetSocketAddress stringToAddress(String addressStr) {
         String[] parts = addressStr.split(":");
         return new InetSocketAddress(parts[0], Integer.parseInt(parts[1]));
+    }
+
+    private String buildAddressSignature(List<InetSocketAddress> addresses) {
+        List<String> normalized = new ArrayList<>(addresses.size());
+        for (InetSocketAddress address : addresses) {
+            normalized.add(addressToString(address));
+        }
+        normalized.sort(Comparator.naturalOrder());
+        return String.join(",", normalized);
+    }
+
+    private record RingState(String signature, TreeMap<Integer, String> ring) {
     }
 }

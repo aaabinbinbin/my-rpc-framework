@@ -1,11 +1,11 @@
-﻿package com.rpc.core.transport.netty.server.dispatch;
+package com.rpc.core.transport.netty.server.dispatch;
 
-import com.rpc.core.protocol.RpcHeader;
-import com.rpc.core.protocol.RpcHeartbeat;
-import com.rpc.core.protocol.RpcMessage;
-import com.rpc.core.protocol.RpcMessageType;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.protocol.message.RpcHeader;
+import com.rpc.core.protocol.message.RpcHeartbeat;
+import com.rpc.core.protocol.message.RpcMessage;
+import com.rpc.core.protocol.message.RpcMessageType;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
 import com.rpc.core.runtime.server.ServerLifecycle;
 import com.rpc.core.transport.server.RpcRequestProcessor;
 import lombok.extern.slf4j.Slf4j;
@@ -61,13 +61,18 @@ public class RpcRequestDispatcher implements RpcRequestProcessor {
         RpcHeader requestHeader = requestMessage.getHeader();
         RpcRequest rpcRequest = (RpcRequest) requestMessage.getBody();
 
-        RpcResponse rpcResponse;
-        if (!serverLifecycle.isAcceptingRequests()) {
-            rpcResponse = RpcResponse.fail(503, "Server is shutting down", rpcRequest.getRequestId());
-        } else {
-            rpcResponse = requestExecutor.execute(rpcRequest);
+        serverLifecycle.incrementActiveRequests();
+        try {
+            RpcResponse rpcResponse;
+            if (!serverLifecycle.isAcceptingRequests()) {
+                rpcResponse = RpcResponse.fail(503, "Server is shutting down", rpcRequest.getRequestId());
+            } else {
+                rpcResponse = requestExecutor.execute(rpcRequest);
+            }
+            return buildResponseMessage(rpcResponse, requestHeader);
+        } finally {
+            serverLifecycle.decrementActiveRequests();
         }
-        return buildResponseMessage(rpcResponse, requestHeader);
     }
 
     /**
@@ -79,7 +84,7 @@ public class RpcRequestDispatcher implements RpcRequestProcessor {
     private RpcMessage handleHeartbeatRequest(RpcMessage request) {
         RpcHeartbeat heartbeatRequest = (RpcHeartbeat) request.getBody();
         long requestId = heartbeatRequest.getRequestId();
-        RpcHeartbeat heartbeatResponse = RpcHeartbeat.createResponse(requestId);
+        RpcHeartbeat heartbeatResponse = RpcHeartbeat.createResponse(requestId, heartbeatRequest.getTimestamp());
 
         RpcHeader header = RpcHeader.builder()
                 .magicNumber(RpcHeader.MAGIC_NUMBER)

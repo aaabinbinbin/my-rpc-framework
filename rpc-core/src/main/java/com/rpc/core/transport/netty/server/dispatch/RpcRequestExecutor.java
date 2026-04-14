@@ -1,67 +1,59 @@
-﻿package com.rpc.core.transport.netty.server.dispatch;
+package com.rpc.core.transport.netty.server.dispatch;
 
 import com.rpc.core.invoke.context.RpcContext;
-import com.rpc.core.invoke.filter.DefaultFilterChain;
-import com.rpc.core.invoke.filter.FilterContext;
-import com.rpc.core.invoke.filter.FilterManager;
-import com.rpc.core.invoke.filter.FilterPhase;
+import com.rpc.core.invoke.filter.runtime.DefaultFilterChain;
+import com.rpc.core.invoke.filter.context.FilterContext;
+import com.rpc.core.invoke.filter.runtime.FilterManager;
+import com.rpc.core.invoke.filter.api.FilterPhase;
 import com.rpc.core.invoke.filter.impl.TraceFilter;
 import com.rpc.core.observability.metrics.ServiceMetricsManager;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
 import com.rpc.core.registry.LocalRegistry;
 import com.rpc.core.runtime.server.ServerLifecycle;
 
 import java.lang.reflect.Method;
-import java.util.concurrent.ExecutorService;
 
 /**
  * provider 侧业务请求执行器。
  *
- * 如果说 RpcRequestDispatcher 负责“入口分流”，
- * 那这个类负责“真正执行业务请求”。
+ * 所处阶段：请求已经通过 Netty 解码、消息类型分发和业务线程池隔离，
+ * 当前类负责进入 provider 本地执行链。
  *
  * 主要职责：
- * 1. 把请求放到业务线程池执行，避免 IO 线程直接跑用户代码。
- * 2. 根据 serviceName 从本地注册表找到服务对象。
- * 3. 恢复 provider 侧 RpcContext 和 trace 信息。
- * 4. 经过 provider 过滤器链。
- * 5. 最终通过反射调用目标方法并封装成 RpcResponse。
+ * - 根据 serviceName 从 LocalRegistry 找到本地服务实现对象。
+ * - 构造 provider 侧 RpcContext，承接 requestId、traceId 和 attachments。
+ * - 执行 provider 阶段过滤器链，例如 MDC、metrics、限流。
+ * - 过滤器链放行后，通过反射调用目标服务方法。
+ *
+ * 注意事项：
+ * - 这里返回的是 RpcResponse，异常会转换成失败响应，避免 consumer 一直等待。
+ * - RpcContext 基于线程上下文，finally 中必须清理，避免业务线程复用导致上下文串请求。
  */
 public class RpcRequestExecutor {
-    /** provider 本地注册表，用于根据服务名找到真实服务对象。 */
+    /** provider 进程内服务注册表，保存 serviceName 到服务实现对象的映射。 */
     private final LocalRegistry localRegistry;
-
-    /** 服务级指标管理器，供 provider 侧观测和统计使用。 */
+    /** 服务指标管理器；当前类持有它主要用于确保服务维度 metrics 已初始化。 */
     private final ServiceMetricsManager metricsManager;
-
-    /** 业务线程池，真正的业务调用在这里执行。 */
-    private final ExecutorService bizExecutor;
-
-    /** 服务端生命周期状态，用于优雅停机时统计 inflight 请求。 */
+    /** 服务端生命周期状态，用于统计 inflight 请求并支持优雅停机。 */
     private final ServerLifecycle serverLifecycle;
 
     public RpcRequestExecutor(LocalRegistry localRegistry,
-                              ExecutorService bizExecutor,
                               ServerLifecycle serverLifecycle) {
         this.localRegistry = localRegistry;
         this.metricsManager = ServiceMetricsManager.getInstance();
-        this.bizExecutor = bizExecutor;
         this.serverLifecycle = serverLifecycle;
     }
 
     /**
-     * 执行一次业务请求。
+     * 执行一次 provider 侧业务请求。
      *
-     * 这里先增加 inflight 计数，表示当前有一个请求正在处理中；
-     * 然后把真正执行逻辑提交到业务线程池，最后再减少 inflight 计数。
+     * inflight 统计覆盖本地执行全过程，用于优雅停机时等待在途请求 drain。
      */
     public RpcResponse execute(RpcRequest rpcRequest) {
-        String serviceName = rpcRequest.getServiceName();
         serverLifecycle.incrementInflight();
-
         try {
-            return bizExecutor.submit(() -> invoke(rpcRequest)).get();
+            return invoke(rpcRequest);
         } catch (Exception e) {
             return RpcResponse.fail(500, e.getMessage(), rpcRequest.getRequestId());
         } finally {
@@ -70,9 +62,10 @@ public class RpcRequestExecutor {
     }
 
     /**
-     * 在业务线程池中真正执行请求。
-     * 这里会恢复 provider 侧上下文，再经过 provider filter，
-     * 最后把执行结果统一包装成 RpcResponse。
+     * 进入 provider 本地调用链。
+     *
+     * 这里先把请求元数据写入 RpcContext，再通过 provider filter 链处理横切逻辑；
+     * 真正的反射调用被放在 filter 链末端，便于限流、MDC、metrics 等逻辑统一包裹业务执行。
      */
     private RpcResponse invoke(RpcRequest rpcRequest) throws Exception {
         String serviceName = rpcRequest.getServiceName();
@@ -104,9 +97,10 @@ public class RpcRequestExecutor {
     }
 
     /**
-     * 通过反射调用 provider 本地服务对象的方法。
+     * 反射调用目标服务方法。
      *
-     * 这是 provider 执行链最终落到业务实现类的地方。
+     * 方法定位依赖 methodName + parameterTypes，原因是 Java 支持方法重载；
+     * 只用方法名无法唯一定位目标方法。
      */
     private Object invokeTarget(Object serviceBean, RpcRequest rpcRequest) throws Exception {
         Method method = serviceBean.getClass().getMethod(

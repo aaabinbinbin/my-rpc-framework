@@ -1,42 +1,40 @@
-﻿package com.rpc.core.resilience.circuitbreaker;
+package com.rpc.core.resilience.circuitbreaker;
 
 import com.rpc.core.resilience.CircuitBreaker;
 import com.rpc.core.resilience.CircuitBreakerState;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 默认的内存版熔断器实现。
+ * 熔断器默认实现。
  *
- * 它维护 CLOSED、OPEN、HALF_OPEN 三种状态：
- * 1. CLOSED：正常放流量，同时统计失败率。
- * 2. OPEN：直接拒绝请求，等待恢复窗口到期。
- * 3. HALF_OPEN：放少量探测请求，根据探测结果决定恢复还是重新熔断。
+ * 所处阶段：consumer 调用下游服务或 provider 实例前，用于判断是否允许继续请求。
+ * 状态流转：
+ * - CLOSED：正常放行并统计成功/失败。
+ * - OPEN：快速失败，等待冷却时间。
+ * - HALF_OPEN：放少量探测请求，成功恢复，失败重新打开。
+ *
+ * 注意事项：
+ * - 本实现使用原子变量维护计数和状态，状态切换处用 transitionLock 保证复合逻辑一致。
+ * - 半开状态必须限制探测并发，避免下游刚恢复时被瞬时流量再次打垮。
  */
 @Slf4j
 public class CircuitBreakerImpl implements CircuitBreaker {
-    /** 这里只是一个标识名，可能是 service:xxx，也可能是 instance:xxx。 */
     private final String serviceName;
-    /** 触发熔断的失败率阈值。 */
     private final float failureRateThreshold;
-    /** 至少调用多少次后，才开始进行失败率判断。 */
     private final int minNumberOfCalls;
-    /** OPEN 状态保持多久后，可以转为 HALF_OPEN。 */
     private final long waitDurationInOpenState;
-    /** HALF_OPEN 状态下允许放过多少个探测请求。 */
     private final int permittedNumberOfCallsInHalfOpenState;
 
-    /** 当前统计窗口内的调用总数。 */
     private final AtomicInteger totalCalls = new AtomicInteger(0);
-    /** 当前统计窗口内的失败数。 */
     private final AtomicInteger failedCalls = new AtomicInteger(0);
-    /** HALF_OPEN 状态下已经放过的探测请求数。 */
     private final AtomicInteger halfOpenCalls = new AtomicInteger(0);
+    private final AtomicInteger halfOpenSuccessCalls = new AtomicInteger(0);
+    private final Object transitionLock = new Object();
 
-    /** 当前熔断状态。 */
-    private volatile CircuitBreakerState state = CircuitBreakerState.CLOSED;
-    /** 最近一次失败时间，用来计算 OPEN 持续时长。 */
+    private final AtomicReference<CircuitBreakerState> state = new AtomicReference<>(CircuitBreakerState.CLOSED);
     private volatile long lastFailureTime = 0L;
 
     public CircuitBreakerImpl(String serviceName,
@@ -51,29 +49,24 @@ public class CircuitBreakerImpl implements CircuitBreaker {
         this.permittedNumberOfCallsInHalfOpenState = permittedNumberOfCallsInHalfOpenState;
     }
 
+    /** 判断当前请求是否允许通过；OPEN 状态到达等待时间后会尝试进入 HALF_OPEN。 */
     @Override
-    /**
-     * 判断当前请求是否允许通过。
-     * 这是 consumer 在真正发请求前会调用的核心入口。
-     */
     public boolean allowRequest() {
-        CircuitBreakerState currentState = getState();
-
-        if (currentState == CircuitBreakerState.OPEN) {
-            // OPEN 状态会直接拦住流量，直到等待窗口结束；
-            // 之后进入 HALF_OPEN，放少量探测流量判断是否恢复。
-            long elapsed = System.currentTimeMillis() - lastFailureTime;
-            if (elapsed >= waitDurationInOpenState) {
-                log.info("Circuit breaker transitions OPEN -> HALF_OPEN: {}", serviceName);
-                state = CircuitBreakerState.HALF_OPEN;
-                halfOpenCalls.set(0);
-                return true;
-            }
-            return false;
+        CircuitBreakerState currentState = state.get();
+        if (currentState == CircuitBreakerState.CLOSED) {
+            return true;
         }
 
-        if (currentState == CircuitBreakerState.HALF_OPEN) {
-            // HALF_OPEN 只允许有限数量的探测请求，而不是立刻恢复全部流量。
+        synchronized (transitionLock) {
+            currentState = state.get();
+            if (currentState == CircuitBreakerState.CLOSED) {
+                return true;
+            }
+
+            if (currentState == CircuitBreakerState.OPEN && !tryTransitionToHalfOpenLocked()) {
+                return false;
+            }
+
             int currentCalls = halfOpenCalls.incrementAndGet();
             if (currentCalls <= permittedNumberOfCallsInHalfOpenState) {
                 return true;
@@ -81,35 +74,34 @@ public class CircuitBreakerImpl implements CircuitBreaker {
             log.debug("Half-open probe limit reached for {}", serviceName);
             return false;
         }
-
-        return true;
     }
 
+    /** 记录一次成功调用；HALF_OPEN 下成功会推动熔断器恢复 CLOSED。 */
     @Override
-    /** 记录一次成功调用，并在 HALF_OPEN 场景下尝试恢复为 CLOSED。 */
     public void recordSuccess() {
         totalCalls.incrementAndGet();
 
-        if (getState() == CircuitBreakerState.HALF_OPEN) {
-            // 探测成功可以看作恢复信号，因此关闭熔断器并重置统计窗口。
-            log.info("Circuit breaker transitions HALF_OPEN -> CLOSED: {}", serviceName);
-            state = CircuitBreakerState.CLOSED;
-            resetStatistics();
+        if (state.get() == CircuitBreakerState.HALF_OPEN) {
+            halfOpenSuccessCalls.incrementAndGet();
+            if (state.compareAndSet(CircuitBreakerState.HALF_OPEN, CircuitBreakerState.CLOSED)) {
+                log.info("Circuit breaker transitions HALF_OPEN -> CLOSED: {}", serviceName);
+                resetStatistics();
+            }
         }
     }
 
+    /** 记录一次失败调用；CLOSED 下按失败率判断是否打开，HALF_OPEN 下失败会立即重新打开。 */
     @Override
-    /** 记录一次失败调用，并根据当前状态决定是否进入或维持熔断。 */
     public void recordFailure() {
         totalCalls.incrementAndGet();
         failedCalls.incrementAndGet();
         lastFailureTime = System.currentTimeMillis();
 
-        CircuitBreakerState currentState = getState();
+        CircuitBreakerState currentState = state.get();
         if (currentState == CircuitBreakerState.HALF_OPEN) {
-            // 探测失败说明下游依然不健康，因此重新回到 OPEN。
-            log.warn("Circuit breaker transitions HALF_OPEN -> OPEN: {}", serviceName);
-            state = CircuitBreakerState.OPEN;
+            if (state.compareAndSet(CircuitBreakerState.HALF_OPEN, CircuitBreakerState.OPEN)) {
+                log.warn("Circuit breaker transitions HALF_OPEN -> OPEN: {}", serviceName);
+            }
             return;
         }
 
@@ -118,28 +110,51 @@ public class CircuitBreakerImpl implements CircuitBreaker {
         }
     }
 
+    /** 获取当前状态；OPEN 状态下会顺便检查是否可以进入 HALF_OPEN。 */
     @Override
-    /** 获取当前状态，并在 OPEN 超时后自动转换到 HALF_OPEN。 */
     public CircuitBreakerState getState() {
-        if (state == CircuitBreakerState.OPEN) {
-            long elapsed = System.currentTimeMillis() - lastFailureTime;
-            if (elapsed >= waitDurationInOpenState) {
-                state = CircuitBreakerState.HALF_OPEN;
-                halfOpenCalls.set(0);
-            }
+        CircuitBreakerState currentState = state.get();
+        if (currentState != CircuitBreakerState.OPEN) {
+            return currentState;
         }
-        return state;
+
+        synchronized (transitionLock) {
+            currentState = state.get();
+            if (currentState != CircuitBreakerState.OPEN) {
+                return currentState;
+            }
+
+            if (tryTransitionToHalfOpenLocked()) {
+                return CircuitBreakerState.HALF_OPEN;
+            }
+            return state.get();
+        }
     }
 
     @Override
-    /** 手动重置熔断器，常用于恢复或测试。 */
     public void reset() {
-        state = CircuitBreakerState.CLOSED;
+        state.set(CircuitBreakerState.CLOSED);
         resetStatistics();
         log.info("Circuit breaker reset: {}", serviceName);
     }
 
-    /** 在 CLOSED 状态下检查失败率，必要时切换为 OPEN。 */
+    /** 在持有 transitionLock 的前提下尝试从 OPEN 切换到 HALF_OPEN。 */
+    private boolean tryTransitionToHalfOpenLocked() {
+        long elapsed = System.currentTimeMillis() - lastFailureTime;
+        if (elapsed < waitDurationInOpenState) {
+            return false;
+        }
+
+        if (state.compareAndSet(CircuitBreakerState.OPEN, CircuitBreakerState.HALF_OPEN)) {
+            log.info("Circuit breaker transitions OPEN -> HALF_OPEN: {}", serviceName);
+            halfOpenCalls.set(0);
+            halfOpenSuccessCalls.set(0);
+            return true;
+        }
+        return state.get() == CircuitBreakerState.HALF_OPEN;
+    }
+
+    /** 根据当前窗口内失败率判断是否需要从 CLOSED 切换到 OPEN。 */
     private void checkAndUpdateState() {
         int total = totalCalls.get();
         int failed = failedCalls.get();
@@ -152,19 +167,19 @@ public class CircuitBreakerImpl implements CircuitBreaker {
         log.debug("Circuit breaker stats service={}, total={}, failed={}, failureRate={}%",
                 serviceName, total, failed, failureRate);
 
-        if (failureRate >= failureRateThreshold) {
+        if (failureRate >= failureRateThreshold
+                && state.compareAndSet(CircuitBreakerState.CLOSED, CircuitBreakerState.OPEN)) {
             log.warn("Circuit breaker opens for {}: failureRate={}%, threshold={}%",
                     serviceName, failureRate, failureRateThreshold);
-            state = CircuitBreakerState.OPEN;
-            // 进入 OPEN 后，后续会开始新的统计窗口。
             resetStatistics();
         }
     }
 
-    /** 重置内部计数器。 */
+    /** 重置统计窗口；状态切换完成后重新开始计算失败率。 */
     private void resetStatistics() {
         totalCalls.set(0);
         failedCalls.set(0);
         halfOpenCalls.set(0);
+        halfOpenSuccessCalls.set(0);
     }
 }

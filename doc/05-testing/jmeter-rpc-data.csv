@@ -1,0 +1,4 @@
+name,a,b,payloadSize,sleepMillis,failurePercent
+alice,1,2,128,10,0
+bob,10,20,1024,100,10
+carol,100,200,10240,500,20

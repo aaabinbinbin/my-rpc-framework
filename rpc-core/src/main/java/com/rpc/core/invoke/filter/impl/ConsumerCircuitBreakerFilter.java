@@ -1,17 +1,18 @@
-﻿package com.rpc.core.invoke.filter.impl;
+package com.rpc.core.invoke.filter.impl;
 
 import com.rpc.core.common.exception.RpcException;
 import com.rpc.core.resilience.CircuitBreaker;
 import com.rpc.core.resilience.DegradationPolicy;
-import com.rpc.core.invoke.filter.FilterChain;
-import com.rpc.core.invoke.filter.FilterContext;
-import com.rpc.core.invoke.filter.FilterPhase;
-import com.rpc.core.invoke.filter.FilterRuntimeConfig;
-import com.rpc.core.invoke.filter.RpcFilter;
+import com.rpc.core.invoke.filter.api.FilterChain;
+import com.rpc.core.invoke.filter.context.FilterContext;
+import com.rpc.core.invoke.filter.api.FilterPhase;
+import com.rpc.core.invoke.filter.runtime.FilterRuntimeConfig;
+import com.rpc.core.invoke.filter.api.RpcFilter;
 import com.rpc.core.invoke.invocation.CircuitBreakerScope;
 import com.rpc.core.invoke.invocation.InvocationOptions;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
+import com.rpc.core.common.util.RequestIdGenerator;
 
 /**
  * consumer 侧熔断 / 降级过滤器。
@@ -33,7 +34,7 @@ public class ConsumerCircuitBreakerFilter implements RpcFilter {
     /**
      * 执行熔断判断。
      *
-     * 如果当前 breaker 已经不允许继续请求，或者失败次数超过阈值，
+     * 如果当前 breaker 已经不允许继续请求，
      * 就直接走降级逻辑；否则继续执行后续调用链，并根据结果更新 breaker 状态。
      */
     @Override
@@ -41,25 +42,20 @@ public class ConsumerCircuitBreakerFilter implements RpcFilter {
         RpcRequest request = context.getRequest();
         InvocationOptions options = context.getInvocationOptions();
         String breakerKey = resolveCircuitBreakerKey(request, options);
-        CircuitBreaker circuitBreaker = FilterRuntimeConfig.getCircuitBreakerManager()
+        CircuitBreaker circuitBreaker = resolveCircuitBreakerManager(context)
                 .getServiceCircuitBreaker(breakerKey);
 
-        if (shouldDegrade(circuitBreaker, breakerKey)) {
+        if (shouldDegrade(circuitBreaker)) {
+            ensureLocalRequestId(request);
             return applyDegradation(request);
         }
 
         try {
             Object result = chain.proceed(context);
             circuitBreaker.recordSuccess();
-            FilterRuntimeConfig.resetConsumerFailure(breakerKey);
             return result;
-        } catch (RpcException e) {
-            circuitBreaker.recordFailure();
-            FilterRuntimeConfig.incrementConsumerFailure(breakerKey);
-            throw e;
         } catch (Exception e) {
             circuitBreaker.recordFailure();
-            FilterRuntimeConfig.incrementConsumerFailure(breakerKey);
             throw e;
         }
     }
@@ -67,19 +63,13 @@ public class ConsumerCircuitBreakerFilter implements RpcFilter {
     /**
      * 判断当前调用是否应该直接降级。
      *
-     * 当前支持两类触发条件：
-     * 1. 熔断器已经打开。
-     * 2. 最近失败次数达到阈值。
+     * 当前只由 breaker 状态机决定是否短路。
      */
-    private boolean shouldDegrade(CircuitBreaker circuitBreaker, String breakerKey) {
+    private boolean shouldDegrade(CircuitBreaker circuitBreaker) {
         if (!FilterRuntimeConfig.isConsumerDegradationEnabled()) {
             return false;
         }
-        if (!circuitBreaker.allowRequest()) {
-            return true;
-        }
-        return FilterRuntimeConfig.getConsumerFailureCount(breakerKey)
-                >= FilterRuntimeConfig.getConsumerFailureThreshold();
+        return !circuitBreaker.allowRequest();
     }
 
     /** 执行降级策略，没有配置策略时抛出 SERVICE_DEGRADED 异常。 */
@@ -101,5 +91,18 @@ public class ConsumerCircuitBreakerFilter implements RpcFilter {
             return request.getServiceName() + "#" + request.getMethodName();
         }
         return request.getServiceName();
+    }
+
+    private com.rpc.core.resilience.circuitbreaker.CircuitBreakerManager resolveCircuitBreakerManager(FilterContext context) {
+        if (context.getCircuitBreakerManager() != null) {
+            return context.getCircuitBreakerManager();
+        }
+        return FilterRuntimeConfig.getCircuitBreakerManager();
+    }
+
+    private void ensureLocalRequestId(RpcRequest request) {
+        if (request.getRequestId() == null || request.getRequestId().isBlank()) {
+            request.setRequestId(String.valueOf(RequestIdGenerator.nextId()));
+        }
     }
 }

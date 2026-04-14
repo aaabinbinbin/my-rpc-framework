@@ -1,9 +1,9 @@
-﻿package com.rpc.core.protocol.codec;
+package com.rpc.core.protocol.codec;
 
 import com.rpc.core.extension.serialize.Serializer;
 import com.rpc.core.extension.serialize.factory.SerializerFactory;
-import com.rpc.core.protocol.RpcHeader;
-import com.rpc.core.protocol.RpcMessage;
+import com.rpc.core.protocol.message.RpcHeader;
+import com.rpc.core.protocol.message.RpcMessage;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
@@ -36,11 +36,13 @@ public class RpcProtocolEncoder extends MessageToByteEncoder<RpcMessage> {
         RpcHeader header = msg.getHeader();
         Object body = msg.getBody();
 
+        // serializerType 必须在协议头中确定，因为对端解码 body 前需要先知道使用哪个序列化器。
         Serializer serializer = SerializerFactory.getSerializer(header.getSerializerType());
         byte[] bodyBytes = serializer.serialize(body);
 
         header.setBodyLength(bodyBytes.length);
 
+        // checksum 只覆盖 body，便于解码端发现序列化内容损坏或帧读取错位。
         CRC32 crc32 = new CRC32();
         crc32.update(bodyBytes);
         header.setChecksum(crc32.getValue());

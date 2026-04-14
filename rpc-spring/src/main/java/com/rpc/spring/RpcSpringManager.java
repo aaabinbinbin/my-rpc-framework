@@ -1,11 +1,11 @@
-﻿package com.rpc.spring;
+package com.rpc.spring;
 
 import com.rpc.core.api.annotation.RpcReference;
 import com.rpc.core.api.annotation.RpcService;
 import com.rpc.core.api.bootstrap.RpcConsumerBootstrap;
 import com.rpc.core.api.bootstrap.RpcProviderBootstrap;
-import com.rpc.core.config.RpcConfigLoader;
-import com.rpc.core.config.RpcFrameworkConfig;
+import com.rpc.core.config.framework.RpcConfigLoader;
+import com.rpc.core.config.framework.RpcFrameworkConfig;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -99,6 +99,14 @@ public class RpcSpringManager implements BeanPostProcessor, SmartLifecycle, Disp
         destroy();
     }
 
+    /**
+     * 返回当前 RPC Spring 管理器是否已经进入运行态。
+     *
+     * 注意事项：该状态只表示 Spring 管理器生命周期已启动，不代表每个远端 provider 都一定可用；
+     * 具体服务可用性仍由注册中心订阅、连接池和熔断状态共同决定。
+     *
+     * @return 已启动返回 true，否则返回 false
+     */
     @Override
     public boolean isRunning() {
         return running;

@@ -1,23 +1,28 @@
-﻿package com.rpc.core.transport.netty.client.invocation;
+package com.rpc.core.transport.netty.client.invocation;
 
 import com.rpc.core.invoke.cluster.ClusterInvoker;
 import com.rpc.core.invoke.cluster.ClusterInvokerFactory;
 import com.rpc.core.common.constant.ErrorCode;
 import com.rpc.core.common.exception.RpcException;
+import com.rpc.core.common.exception.RpcExceptionMapper;
+import com.rpc.core.common.exception.dedicated.CircuitBreakerException;
 import com.rpc.core.resilience.CircuitBreaker;
 import com.rpc.core.resilience.circuitbreaker.CircuitBreakerManager;
 import com.rpc.core.resilience.ratelimit.RateLimiterManager;
 import com.rpc.core.resilience.retry.RetryExecutor;
-import com.rpc.core.invoke.filter.DefaultFilterChain;
-import com.rpc.core.invoke.filter.FilterContext;
-import com.rpc.core.invoke.filter.FilterManager;
-import com.rpc.core.invoke.filter.FilterPhase;
+import com.rpc.core.invoke.filter.runtime.DefaultFilterChain;
+import com.rpc.core.invoke.filter.context.FilterContext;
+import com.rpc.core.invoke.filter.runtime.FilterManager;
+import com.rpc.core.invoke.filter.api.FilterPhase;
 import com.rpc.core.invoke.invocation.InvocationAttachmentKeys;
 import com.rpc.core.invoke.invocation.InvocationOptions;
 import com.rpc.core.invoke.invocation.InvocationOptionsResolver;
 import com.rpc.core.invoke.invocation.CircuitBreakerScope;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
+import com.rpc.core.common.util.RequestIdGenerator;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.Callable;
@@ -35,6 +40,7 @@ import java.util.concurrent.Callable;
  * 4. 调用服务解析器选择 provider 地址。
  * 5. 结合集群策略、重试器和熔断器完成一次调用。
  */
+@Slf4j
 public class RpcClientInvocationExecutor {
     /** 服务解析器，负责从服务目录中选择本次实际调用的 provider 地址。 */
     private final RpcServiceResolver serviceResolver;
@@ -75,6 +81,7 @@ public class RpcClientInvocationExecutor {
         if (rateLimiterManager != null
                 && options.isRateLimitEnabled()
                 && !rateLimiterManager.tryAcquire(rateLimitKey, options.getRateLimitPermitsPerSecond())) {
+            ensureLocalRequestId(rpcRequest);
             return RpcResponse.fail(
                     ErrorCode.RATE_LIMIT_EXCEEDED.getCode(),
                     ErrorCode.RATE_LIMIT_EXCEEDED.getDescription(),
@@ -85,6 +92,7 @@ public class RpcClientInvocationExecutor {
         FilterContext context = FilterContext.builder()
                 .request(rpcRequest)
                 .invocationOptions(options)
+                .circuitBreakerManager(circuitBreakerManager)
                 .build();
 
         return (RpcResponse) new DefaultFilterChain(
@@ -116,15 +124,30 @@ public class RpcClientInvocationExecutor {
                     rpcRequest.getServiceName(),
                     options.getLoadBalancerName()
             );
-            RpcResponse response = transportInvoker.invoke(rpcRequest, address);
-            if (response.getCode() == null || response.getCode() != 200) {
-                throw new RpcException(ErrorCode.SERVICE_EXCEPTION, "RPC invoke failed: " + response.getMessage());
-            }
-
             CircuitBreaker instanceCircuitBreaker = circuitBreakerManager.getInstanceCircuitBreaker(
                     rpcRequest.getServiceName(), address);
-            instanceCircuitBreaker.recordSuccess();
-            return response;
+            String previousMdcRequestId = MDC.get("rpcRequestId");
+            rpcRequest.setRequestId(generateRequestId());
+            MDC.put("rpcRequestId", rpcRequest.getRequestId());
+            try {
+                RpcResponse response = transportInvoker.invoke(rpcRequest, address);
+                if (response.getCode() == null || response.getCode() != 200) {
+                    throw RpcExceptionMapper.fromResponse(response.getCode(), response.getMessage());
+                }
+
+                instanceCircuitBreaker.recordSuccess();
+                return response;
+            } catch (Exception e) {
+                instanceCircuitBreaker.recordFailure();
+                throw e;
+            } finally {
+                restoreMdcRequestId(previousMdcRequestId);
+                serviceResolver.release(
+                        rpcRequest.getServiceName(),
+                        options.getLoadBalancerName(),
+                        address
+                );
+            }
         };
     }
 
@@ -174,6 +197,41 @@ public class RpcClientInvocationExecutor {
                 invokeOnce(rpcRequest, transportInvoker, options),
                 options.getRetryTimes()
         );
-        return clusterInvoker.invoke(rpcRequest, transportInvoker);
+        try {
+            return clusterInvoker.invoke(rpcRequest, transportInvoker);
+        } catch (CircuitBreakerException e) {
+            log.warn("Cluster invoke blocked by circuit breaker: service={}, method={}, reason={}",
+                    rpcRequest.getServiceName(), rpcRequest.getMethodName(), e.getReason());
+            throw e;
+        }
+    }
+
+    /**
+     * 仅在一次真实远程请求即将发出时生成 requestId，
+     * 让 requestId 精确对应“一次出网请求”，而不是更早的本地调用意图。
+     */
+    private String generateRequestId() {
+        return String.valueOf(RequestIdGenerator.nextId());
+    }
+
+    private void restoreMdcRequestId(String previousRequestId) {
+        if (previousRequestId == null) {
+            MDC.remove("rpcRequestId");
+        } else {
+            MDC.put("rpcRequestId", previousRequestId);
+        }
+    }
+
+    /**
+     * 对于 consumer 本地短路路径（例如限流直接返回），
+     * 也补一个 requestId，保证响应结构完整且便于日志排查。
+     *
+     * 这不会影响真实出网请求的语义，因为真正发请求时 invokeOnce(...)
+     * 仍然会为每一次实际网络请求重新生成 requestId。
+     */
+    private void ensureLocalRequestId(RpcRequest rpcRequest) {
+        if (rpcRequest.getRequestId() == null || rpcRequest.getRequestId().isBlank()) {
+            rpcRequest.setRequestId(generateRequestId());
+        }
     }
 }

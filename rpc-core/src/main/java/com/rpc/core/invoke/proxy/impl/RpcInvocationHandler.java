@@ -1,17 +1,16 @@
-﻿package com.rpc.core.invoke.proxy.impl;
+package com.rpc.core.invoke.proxy.impl;
 
 import com.rpc.core.invoke.context.RpcContext;
-import com.rpc.core.invoke.filter.DefaultFilterChain;
-import com.rpc.core.invoke.filter.FilterContext;
-import com.rpc.core.invoke.filter.FilterManager;
-import com.rpc.core.invoke.filter.FilterPhase;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.invoke.filter.runtime.DefaultFilterChain;
+import com.rpc.core.invoke.filter.context.FilterContext;
+import com.rpc.core.invoke.filter.runtime.FilterManager;
+import com.rpc.core.invoke.filter.api.FilterPhase;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
 import com.rpc.core.transport.RpcTransport;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
-import java.util.UUID;
 
 /**
  * JDK 动态代理的调用处理器。
@@ -38,7 +37,7 @@ public class RpcInvocationHandler implements InvocationHandler {
      *
      * 处理流程可以概括为：
      * 1. 过滤 Object 自带方法，避免把 toString/equals 等当成 RPC 调用。
-     * 2. 创建 RpcContext，生成本次调用的 requestId。
+     * 2. 创建 RpcContext，为本次调用准备线程上下文。
      * 3. 把本地方法调用翻译成 RpcRequest。
      * 4. 经过 consumer 阶段过滤器链。
      * 5. 交给传输层继续执行真正的远程调用。
@@ -46,19 +45,17 @@ public class RpcInvocationHandler implements InvocationHandler {
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         if (method.getDeclaringClass() == Object.class) {
-            return method.invoke(this, args);
+            return handleObjectMethod(proxy, method, args);
         }
 
         if (client == null) {
             throw new IllegalStateException("RPC client is not initialized");
         }
 
-        RpcContext rpcContext = RpcContext.create()
-                .setRequestId(UUID.randomUUID().toString());
+        RpcContext rpcContext = RpcContext.create();
 
         try {
             RpcRequest request = RpcRequest.builder()
-                    .requestId(rpcContext.getRequestId())
                     .serviceName(serviceClass.getName())
                     .methodName(method.getName())
                     .parameterTypes(method.getParameterTypes())
@@ -84,5 +81,15 @@ public class RpcInvocationHandler implements InvocationHandler {
             // 每次调用结束后都清理线程上下文，避免线程复用时串请求。
             RpcContext.clear();
         }
+    }
+
+    private Object handleObjectMethod(Object proxy, Method method, Object[] args) {
+        return switch (method.getName()) {
+            case "equals" -> proxy == args[0];
+            case "hashCode" -> System.identityHashCode(proxy);
+            case "toString" -> "RpcProxy(" + serviceClass.getName() + ")@"
+                    + Integer.toHexString(System.identityHashCode(proxy));
+            default -> throw new IllegalStateException("Unsupported Object method: " + method.getName());
+        };
     }
 }

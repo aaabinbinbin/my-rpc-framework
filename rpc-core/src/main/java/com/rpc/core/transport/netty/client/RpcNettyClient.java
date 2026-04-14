@@ -1,6 +1,9 @@
-﻿package com.rpc.core.transport.netty.client;
+package com.rpc.core.transport.netty.client;
 
-import com.rpc.core.config.RpcClientConfig;
+import com.rpc.core.config.client.RpcClientConfig;
+import com.rpc.core.common.exception.RpcException;
+import com.rpc.core.common.exception.RpcExceptionMapper;
+import com.rpc.core.common.constant.ErrorCode;
 import com.rpc.core.discovery.ServiceDirectory;
 import com.rpc.core.discovery.ServiceDiscovery;
 import com.rpc.core.extension.loadbalance.LoadBalancer;
@@ -9,11 +12,12 @@ import com.rpc.core.invoke.invocation.CircuitBreakerScope;
 import com.rpc.core.invoke.invocation.DefaultInvocationOptionsResolver;
 import com.rpc.core.invoke.invocation.InvocationAttachmentKeys;
 import com.rpc.core.invoke.invocation.InvocationOptions;
-import com.rpc.core.protocol.RpcHeader;
-import com.rpc.core.protocol.RpcMessage;
-import com.rpc.core.protocol.RpcMessageType;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.observability.metrics.ClientRuntimeMetricsManager;
+import com.rpc.core.protocol.message.RpcHeader;
+import com.rpc.core.protocol.message.RpcMessage;
+import com.rpc.core.protocol.message.RpcMessageType;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
 import com.rpc.core.protocol.codec.RpcProtocolDecoder;
 import com.rpc.core.protocol.codec.RpcProtocolEncoder;
 import com.rpc.core.resilience.circuitbreaker.CircuitBreakerManager;
@@ -24,11 +28,12 @@ import com.rpc.core.transport.RpcTransport;
 import com.rpc.core.transport.netty.client.connection.RpcConnection;
 import com.rpc.core.transport.netty.client.connection.pool.ConnectionPool;
 import com.rpc.core.transport.netty.client.handler.RpcClientHandler;
-import com.rpc.core.transport.netty.client.handler.heart.HeartbeatHandler;
-import com.rpc.core.transport.netty.client.handler.heart.ReconnectHandler;
+import com.rpc.core.transport.netty.client.handler.heartbeat.HeartbeatHandler;
+import com.rpc.core.transport.netty.client.handler.heartbeat.ReconnectHandler;
 import com.rpc.core.transport.netty.client.invocation.RpcClientInvocationExecutor;
 import com.rpc.core.transport.netty.client.invocation.RpcServiceResolver;
-import com.rpc.core.transport.netty.client.manager.RequestManager;
+import com.rpc.core.transport.netty.client.request.RequestManager;
+import com.rpc.core.transport.netty.client.scheduler.ClientSharedScheduler;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
@@ -36,59 +41,47 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.timeout.IdleStateHandler;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 基于 Netty 的 RPC 客户端实现。
+ * Netty 版 RPC 客户端。
  *
- * 这个类位于 consumer 侧调用链的 transport 层，
- * 负责把已经编排完成的 RpcRequest 真正发到远端，并异步接收响应。
+ * 所处阶段：consumer 侧“调用编排完成之后、真实网络发送之前”的 transport 层。
+ * 主要职责：
+ * 1. 初始化 Netty Bootstrap 和客户端 pipeline。
+ * 2. 维护连接池、pending 请求表和超时扫描任务。
+ * 3. 将 RpcRequest 编码成 RpcMessage 并写入目标 provider 连接。
+ * 4. 在关闭时清理连接、pending 请求、服务发现订阅和 EventLoop。
  *
- * 可以把它理解成“网络发送与连接管理总入口”，
- * 但调用策略、限流、重试等高层逻辑并不直接写在这里，
- * 而是委托给 RpcClientInvocationExecutor 先完成编排。
+ * 注意事项：
+ * - requestId 必须由调用编排层在真实 attempt 前生成，本类只校验和使用。
+ * - 这里不做服务发现和负载均衡决策，只向已经选中的地址发送请求。
+ * - 客户端高并发保护依赖 pending 上限、单连接 inflight 上限和连接池总量限制。
  */
 @Slf4j
 public class RpcNettyClient implements RpcTransport {
-    /**
-     * 标记当前关闭动作是否是主动关闭。
-     *
-     * 这个标记主要给重连逻辑使用，
-     * 防止应用正常关闭时还把断链误判为网络异常并继续触发重连。
-     */
+    private static final long MIN_TIMEOUT_SCAN_INTERVAL_MILLIS = 100L;
+    private static final long MAX_TIMEOUT_SCAN_INTERVAL_MILLIS = 1_000L;
+
     private final AtomicBoolean closing = new AtomicBoolean(false);
-
-    /** Netty 事件循环组。 */
+    private final ClientSharedScheduler timeoutScanner = ClientSharedScheduler.getInstance();
     private EventLoopGroup eventLoopGroup;
-
-    /** 长连接池，负责按地址复用现有连接。 */
     private ConnectionPool connectionPool;
-
-    /** 请求管理器，负责把 requestId 和等待中的 future 关联起来。 */
     private RequestManager requestManager;
-
-    /** 原始服务发现组件。 */
     private final ServiceDiscovery serviceDiscovery;
-
-    /** 服务目录，对服务发现结果做缓存、预热和失败回退。 */
     private final ServiceDirectory serviceDirectory;
-
-    /** 默认读取超时。 */
     private final int readTimeout;
-
-    /** 调用编排器，负责在真正发请求前完成限流、配置解析、容错等逻辑。 */
     private final RpcClientInvocationExecutor invocationExecutor;
-
-    /** 默认序列化类型码，构造阶段缓存下来以减少重复解析。 */
     private final byte serializerType;
+    private ScheduledFuture<?> timeoutScanTask;
 
     public RpcNettyClient(RpcClientConfig config, ServiceDiscovery serviceDiscovery) {
         this.serviceDiscovery = serviceDiscovery;
@@ -98,7 +91,7 @@ public class RpcNettyClient implements RpcTransport {
                 config.isDiscoveryAllowStaleOnFailure()
         );
         this.eventLoopGroup = new NioEventLoopGroup();
-        this.requestManager = new RequestManager();
+        this.requestManager = new RequestManager(config.getMaxPendingRequests());
         this.readTimeout = config.getReadTimeout();
         this.serializerType = (byte) config.resolveSerializer().getSerializerType();
 
@@ -141,105 +134,113 @@ public class RpcNettyClient implements RpcTransport {
         bootstrap.group(eventLoopGroup)
                 .channel(NioSocketChannel.class)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, config.getConnectTimeout())
-                .option(ChannelOption.TCP_NODELAY, true)
-                .handler(new LoggingHandler(LogLevel.INFO))
-                .handler(new ChannelInitializer<SocketChannel>() {
+                .option(ChannelOption.TCP_NODELAY, true);
+        if (log.isDebugEnabled()) {
+            bootstrap.handler(new LoggingHandler(getClass(), io.netty.handler.logging.LogLevel.DEBUG));
+        }
+        bootstrap.handler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
-                        // pipeline 顺序体现了 transport 层对一条连接的完整处理流程：
-                        // 空闲检测 -> 协议解码/编码 -> 心跳保活 -> 断线重连 -> 业务响应处理。
                         ch.pipeline()
                                 .addLast("idleStateHandler",
                                         new IdleStateHandler(0, config.getHeartbeatInterval(), 0, TimeUnit.MILLISECONDS))
                                 .addLast("decoder", new RpcProtocolDecoder())
                                 .addLast("encoder", new RpcProtocolEncoder())
                                 .addLast("heartbeatHandler", new HeartbeatHandler())
-                                .addLast("reconnectHandler", new ReconnectHandler(connectionPool, closing, config))
+                                .addLast("reconnectHandler", new ReconnectHandler(
+                                        () -> connectionPool,
+                                        serviceDirectory::containsAddress,
+                                        closing,
+                                        config))
                                 .addLast("handler", new RpcClientHandler(requestManager));
                     }
                 });
 
-        this.connectionPool = new ConnectionPool(bootstrap);
+        this.connectionPool = new ConnectionPool(
+                bootstrap,
+                config.getMaxInflightRequestsPerConnection(),
+                config.getMaxConnectionsPerAddress(),
+                config.getMaxTotalConnections(),
+                config.getIdleConnectionTtlMillis(),
+                config.getIdleConnectionEvictIntervalMillis()
+        );
+        scheduleTimeoutScanner();
 
         if (config.isEnableDegradation()) {
-            log.info("Client degradation enabled, policy={}, threshold={}",
+            log.info("Client degradation enabled, policy={}",
                     config.getDegradationPolicy() != null
                             ? config.getDegradationPolicy().getClass().getSimpleName()
-                            : "null",
-                    config.getDegradationFailureThreshold());
+                            : "null");
         }
     }
 
-    /**
-     * 同步发送请求。
-     *
-     * 虽然对上层暴露的是同步接口，
-     * 但底层仍然是“发送后注册 future，再等待异步响应回填”的模型。
-     */
+    /** consumer 侧统一发送入口，先进入调用编排链，再落到具体地址发送。 */
     @Override
     public RpcResponse sendRequest(RpcRequest rpcRequest) throws Exception {
         return invocationExecutor.execute(rpcRequest, this::sendRequestToAddress);
     }
 
     /**
-     * 异步发送请求。
+     * 向已经选中的 provider 地址发送一次真实网络请求。
      *
-     * 这里不阻塞等待响应，而是只负责把请求送到已解析出的目标地址。
-     */
-    @Override
-    public void sendRequestAsync(RpcRequest rpcRequest, long requestId) throws Exception {
-        rpcRequest.setRequestId(String.valueOf(requestId));
-        InetSocketAddress selectedAddress = invocationExecutor.resolveServiceAddress(rpcRequest.getServiceName());
-        sendRequestAsyncToAddress(rpcRequest, requestId, selectedAddress);
-    }
-
-    /**
-     * 把请求发送到某个具体地址，并同步等待响应。
-     *
-     * 关键动作：
-     * 1. 生成 requestId。
-     * 2. 在 RequestManager 中登记 future。
-     * 3. 从连接池拿连接。
-     * 4. 把 RpcRequest 包装成 RpcMessage。
-     * 5. 发送后等待 future 完成。
+     * 所处阶段：服务发现、负载均衡、熔断等逻辑已经完成；这里负责连接、写出、等待响应。
+     * 边界处理：
+     * - 单连接 inflight 已满时快速失败为 CLIENT_BUSY。
+     * - 发送或等待异常统一映射为框架异常，并从 pending 表中清理。
+     * - finally 中释放连接 inflight 名额，避免计数泄漏。
      */
     private RpcResponse sendRequestToAddress(RpcRequest rpcRequest, InetSocketAddress address) throws Exception {
-        long requestId = generateRequestId();
-        rpcRequest.setRequestId(String.valueOf(requestId));
-        CompletableFuture<RpcResponse> future = requestManager.addRequest(requestId);
-
-        RpcConnection connection = connectionPool.getConnection(address.getHostString(), address.getPort());
-        RpcMessage message = buildRequestMessage(rpcRequest, requestId);
-
-        connection.getChannel().writeAndFlush(message).sync();
-        return future.get(resolveReadTimeout(rpcRequest), TimeUnit.MILLISECONDS);
-    }
-
-    /**
-     * 异步发送到指定地址。
-     *
-     * 如果发送失败，需要主动通知 RequestManager 完成异常回填，
-     * 否则等待中的请求方可能一直拿不到结果。
-     */
-    private void sendRequestAsyncToAddress(RpcRequest rpcRequest, long requestId, InetSocketAddress address)
-            throws Exception {
-        RpcConnection connection = connectionPool.getConnection(address.getHostString(), address.getPort());
-        RpcMessage message = buildRequestMessage(rpcRequest, requestId);
-
-        connection.getChannel().writeAndFlush(message).addListener(future -> {
-            if (!future.isSuccess()) {
-                requestManager.failRequest(requestId, future.cause());
-                log.error("Failed to send async request requestId={}", requestId, future.cause());
+        long requestId = parseRequestId(rpcRequest);
+        int requestTimeout = resolveReadTimeout(rpcRequest);
+        RpcConnection connection = null;
+        boolean requestSlotAcquired = false;
+        try {
+            connection = connectionPool.getConnection(address.getHostString(), address.getPort());
+            requestSlotAcquired = connection.tryAcquireRequestSlot();
+            if (!requestSlotAcquired) {
+                ClientRuntimeMetricsManager.getInstance().getMetrics().recordInflightLimitRejection();
+                throw new RpcException(
+                        ErrorCode.CLIENT_BUSY,
+                        "RPC connection inflight limit exceeded for " + address
+                );
             }
-        });
+            CompletableFuture<RpcResponse> future =
+                    requestManager.addRequest(requestId, connection.getChannel(), requestTimeout);
+            RpcMessage message = buildRequestMessage(rpcRequest, requestId);
+
+            connection.getChannel().writeAndFlush(message).sync();
+            return future.get(requestTimeout, TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            Exception mapped = RpcExceptionMapper.fromTransport(e);
+            requestManager.failRequest(requestId, mapped);
+            throw mapped;
+        } finally {
+            if (connection != null && requestSlotAcquired) {
+                connection.releaseRequestSlot();
+            }
+        }
     }
 
     /**
-     * 构造真正在线路上传输的 RpcMessage。
+     * 启动 pending 请求超时扫描任务。
      *
-     * 这里会根据当前请求的附件决定使用哪种序列化器，
-     * 并把序列化类型码写入协议头，供服务端解码时使用。
+     * 扫描周期按 readTimeout 做上下限裁剪，避免超时时间很小时扫描过于频繁，
+     * 也避免超时时间很大时 pending 清理反应过慢。
      */
+    private void scheduleTimeoutScanner() {
+        long intervalMillis = Math.max(
+                MIN_TIMEOUT_SCAN_INTERVAL_MILLIS,
+                Math.min(readTimeout, MAX_TIMEOUT_SCAN_INTERVAL_MILLIS)
+        );
+        timeoutScanTask = timeoutScanner.scheduleAtFixedRate(
+                () -> requestManager.clearTimeoutRequests(System.currentTimeMillis()),
+                intervalMillis,
+                intervalMillis,
+                TimeUnit.MILLISECONDS
+        );
+    }
+
+    /** 构造协议消息头，serializerType 允许方法级配置覆盖客户端默认序列化器。 */
     private RpcMessage buildRequestMessage(RpcRequest rpcRequest, long requestId) {
         byte requestSerializerType = resolveSerializerType(rpcRequest);
         RpcHeader header = RpcHeader.builder()
@@ -257,28 +258,22 @@ public class RpcNettyClient implements RpcTransport {
         return message;
     }
 
-    /** 生成请求 ID。当前实现直接使用纳秒时间，重点是保证短时间内足够区分请求。 */
-    private long generateRequestId() {
-        return System.nanoTime();
+    /** transport 层只接受已经初始化好的 requestId；缺失说明上游调用编排顺序出错。 */
+    private long parseRequestId(RpcRequest rpcRequest) {
+        String requestId = rpcRequest.getRequestId();
+        if (requestId == null || requestId.isBlank()) {
+            throw new IllegalStateException("RPC requestId is not initialized before transport send");
+        }
+        return Long.parseLong(requestId);
     }
 
-    /**
-     * 解析本次调用的读取超时。
-     *
-     * 优先使用方法级覆盖值；
-     * 如果没有覆盖，则回退到客户端全局默认超时。
-     */
+    /** 读取方法级超时覆盖值；未覆盖时使用客户端全局 readTimeout。 */
     private int resolveReadTimeout(RpcRequest rpcRequest) {
         String override = rpcRequest.getAttachments().get(InvocationAttachmentKeys.READ_TIMEOUT);
         return override == null || override.isBlank() ? readTimeout : Integer.parseInt(override);
     }
 
-    /**
-     * 解析本次请求最终应使用的序列化类型码。
-     *
-     * 如果方法级配置覆盖了序列化器，则使用覆盖值；
-     * 否则使用客户端默认序列化器。
-     */
+    /** 读取方法级序列化器覆盖值；未覆盖时使用客户端默认序列化器。 */
     private byte resolveSerializerType(RpcRequest rpcRequest) {
         String serializerName = rpcRequest.getAttachments().get(InvocationAttachmentKeys.SERIALIZER);
         if (serializerName == null || serializerName.isBlank()) {
@@ -288,13 +283,9 @@ public class RpcNettyClient implements RpcTransport {
     }
 
     /**
-     * 关闭客户端。
+     * 关闭客户端运行时资源。
      *
-     * 关闭顺序也很重要：
-     * 1. 先标记主动关闭，避免重连逻辑误触发。
-     * 2. 再关闭连接池。
-     * 3. 再关闭事件循环组。
-     * 4. 最后关闭服务发现和目录资源。
+     * 关闭顺序要先阻止新请求，再失败 pending 请求，最后释放连接池、EventLoop 和服务发现资源。
      */
     @Override
     public void close() {
@@ -303,6 +294,16 @@ public class RpcNettyClient implements RpcTransport {
         }
 
         log.info("Closing Netty client...");
+
+        if (timeoutScanTask != null) {
+            timeoutScanTask.cancel(false);
+            timeoutScanTask = null;
+        }
+        timeoutScanner.release();
+
+        if (requestManager != null) {
+            requestManager.failAll(new IllegalStateException("Netty client is closing"));
+        }
 
         if (connectionPool != null) {
             connectionPool.closeAll();

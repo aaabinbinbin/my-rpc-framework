@@ -4,7 +4,7 @@ import com.rpc.core.common.constant.ErrorCode;
 import com.rpc.core.common.exception.RpcException;
 
 /**
- * 瓒呮椂寮傚父
+ * 超时异常
  * 专门用于处理各种超时场景。
  */
 public class TimeoutException extends RpcException {

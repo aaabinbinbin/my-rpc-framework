@@ -1,4 +1,4 @@
-﻿package com.rpc.core.extension.serialize.factory;
+package com.rpc.core.extension.serialize.factory;
 
 import com.rpc.core.extension.serialize.Serializer;
 import com.rpc.core.extension.serialize.SerializerType;

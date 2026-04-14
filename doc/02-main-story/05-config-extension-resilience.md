@@ -1,29 +1,29 @@
-# ���á���չ����������Щ��������ô�������·��
+# 配置、扩展与治理：这些能力是怎么插进主链路的
 
-## 1. Ϊʲô��һƪ���úܶ��˵�һ�ο�ʱ������
+## 1. 为什么这一篇会让很多人第一次看时觉得乱
 
-ǰ�漸ƪ�㿴�����߻��Ƚ��񡰹��¡���
+前面几篇你看的主线还比较像“故事”：
 
-- consumer ע�����
-- ������������
-- transport ������
-- provider ִ�з���
+- consumer 注入代理
+- 代理构造请求
+- transport 发请求
+- provider 执行方法
 
-��һ���������á�SPI ��չ���������۶ϡ�������������Щ���ݣ��ܶ�С�׻�˲��ʧȥ���߸С�
+但一旦进入配置、SPI 扩展、限流、熔断、降级、重试这些内容，很多小白会瞬间失去主线感。
 
-ԭ��ͨ���������ݱ���̫�ѣ�����û���ȸ������Щ�����ĵ�λ��
+原因通常不是内容本身太难，而是没有先搞清楚这些东西的地位：
 
-`���ǲ������߱����������ǲ��������ϵĵ���������չ�㡣`
+`它们不是主线本身，它们是插在主线上的调节器和扩展点。`
 
-������ƪ�������Щ���ݽ���һ����ɢ���ԣ�����ʼ��Χ��һ�����⣺
+所以这篇不会把这些内容讲成一堆零散特性，而是始终围绕一个问题：
 
-`��Щ�����ֱ��������·����һ�������ǽ��ʲô���⡣`
+`这些能力分别插在主链路的哪一步，它们解决什么问题。`
 
 ---
 
-## 2. �ȿ������ó�ʲô��
+## 2. 先看总配置长什么样
 
-��Ŀ�������ö����� `RpcFrameworkConfig`��
+项目的总配置对象是 `RpcFrameworkConfig`：
 
 ```java
 @Data
@@ -59,25 +59,25 @@ public class RpcFrameworkConfig {
 }
 ```
 
-��һ�ۿ���δ���ʱ����Ҫ����ȥ��ÿһ���ֶΡ�
+第一眼看这段代码时，不要急着去背每一个字段。
 
-��Ӧ���Ȱ����ǰ������ࡣ
+你应该先把它们按类别归类。
 
-### ��һ�ࣺ����ͨ������
+### 第一类：基础通信配置
 
 - `transportType`
 - `serializer`
 - `registryType`
 - `registryAddress`
 
-### �ڶ��ࣺprovider ����������
+### 第二类：provider 侧服务端配置
 
 - `serverHost`
 - `serverPort`
 - `serverScanPackages`
-- �̳߳��������
+- 线程池相关配置
 
-### �����ࣺconsumer ���������
+### 第三类：consumer 侧调用配置
 
 - `connectTimeout`
 - `readTimeout`
@@ -86,20 +86,20 @@ public class RpcFrameworkConfig {
 - `clusterStrategy`
 - `methodConfigs`
 
-### �����ࣺ��������
+### 第四类：治理配置
 
-- ����
-- �۶�
-- ����
-- ʧ����ֵ
+- 限流
+- 熔断
+- 降级
+- 失败阈值
 
-��һ���Ȱ�����𡱿����ã��Ͳ��ᱻ��ʮ���ֶ���ס��
+你一旦先按“类别”看配置，就不会被几十个字段吓住。
 
 ---
 
-## 3. ����������������� consumer ����
+## 3. 配置真正在哪里进入 consumer 主线
 
-�� `RpcConsumerBootstrap.fromConfig(...)`��
+看 `RpcConsumerBootstrap.fromConfig(...)`：
 
 ```java
 public static RpcConsumerBootstrap fromConfig(RpcFrameworkConfig frameworkConfig) {
@@ -128,17 +128,17 @@ public static RpcConsumerBootstrap fromConfig(RpcFrameworkConfig frameworkConfig
 }
 ```
 
-��δ���˵����
+这段代码说明：
 
-consumer �����ڡ��������������һ�̡�����ʱ��ȡ���ã������� bootstrap �׶ξͰѴ�������װ���ȥ�ˡ�
+consumer 不是在“真正发请求的那一刻”才临时读取配置，而是在 bootstrap 阶段就把大量配置装配进去了。
 
-Ҳ����˵�����ò�����ɢ����ÿ�����䣬�����Ⱦ�������װ�䣬�ٽ��������������
+也就是说，配置并不是散落在每个角落，而是先经过启动装配，再进入后续调用链。
 
 ---
 
-## 4. ����������������� provider ����
+## 4. 配置真正在哪里进入 provider 主线
 
-provider ���Ӧ���ǣ�
+provider 侧对应的是：
 
 ```java
 public static RpcProviderBootstrap fromConfig(RpcFrameworkConfig frameworkConfig) {
@@ -166,30 +166,30 @@ public static RpcProviderBootstrap fromConfig(RpcFrameworkConfig frameworkConfig
 }
 ```
 
-��˵�� provider ��������ҪӰ����ǣ�
+这说明 provider 端配置主要影响的是：
 
-- ��������������Ϊ
-- �̳߳���Ϊ
-- ����¶��Ϊ
-- provider �����������������
+- 服务端网络监听行为
+- 线程池行为
+- 服务暴露行为
+- provider 侧过滤器和治理能力
 
-���� provider �� consumer ��Ȼ����һ�������ö��󣬵�ʵ���������õķ�ʽ������ͬ��
+所以 provider 和 consumer 虽然共用一个总配置对象，但实际消费配置的方式并不相同。
 
 ---
 
-## 5. Ϊʲô��Ŀ��Ҫ�� SPI ��չ����
+## 5. 为什么项目里要有 SPI 扩展机制
 
-��ĿǰΪֹ�����Ѿ������������ࡰ���滻��������
+到目前为止，你已经见过至少三类“可替换能力”：
 
-- ���ؾ�����
-- ���л���
-- ���ܻ���������չ��
+- 负载均衡器
+- 序列化器
+- 可能还有其他扩展点
 
-�����Щʵ�ֶ�д���ڴ����������Զֻ����һ�����л���ʽ��ֻ����һ�ָ��ؾ�����ԣ��ǿ�ܾͺ�����չ��
+如果这些实现都写死在代码里，比如永远只能用一种序列化方式、只能用一种负载均衡策略，那框架就很难扩展。
 
-������Ŀ������ SPI ������չ���ơ�
+所以项目引入了 SPI 风格的扩展机制。
 
-��������� `ExtensionFactory`��
+入口门面是 `ExtensionFactory`：
 
 ```java
 public class ExtensionFactory {
@@ -210,23 +210,23 @@ public class ExtensionFactory {
 }
 ```
 
-������Ȱ�������ɣ�
+你可以先把它理解成：
 
-`������չ���ͺ����֣�����չϵͳ��ȡʵ�֡�`
+`根据扩展类型和名字，从扩展系统里取实现。`
 
-���磺
+比如：
 
-- ȡĬ�����л���
-- ȡ��Ϊ `random` �ĸ��ؾ�����
-- ȡ��Ϊ `protobuf` �����л���
+- 取默认序列化器
+- 取名为 `random` 的负载均衡器
+- 取名为 `protobuf` 的序列化器
 
-������Ŀ�ʹӡ�д��ʵ�֡�����ˡ�������ѡʵ�֡���
+这样项目就从“写死实现”变成了“按配置选实现”。
 
 ---
 
-## 6. ���ؾ�����չ����ô�ӽ�����
+## 6. 负载均衡扩展是怎么接进来的
 
-�� `LoadBalancerFactory`��
+看 `LoadBalancerFactory`：
 
 ```java
 public class LoadBalancerFactory {
@@ -243,27 +243,27 @@ public class LoadBalancerFactory {
 }
 ```
 
-��δ����ֱ�ס�
+这段代码很直白。
 
-���������ǣ�
+它的意义是：
 
-`���ؾ�����Բ���д���ڷ����������ģ�������ͨ����չ����������ȡ�������ٽ���������ʹ�á�`
+`负载均衡策略不是写死在服务解析器里的，而是先通过扩展工厂按名字取出来，再交给调用链使用。`
 
-Ȼ���� consumer bootstrap �
+然后在 consumer bootstrap 里：
 
 ```java
 .loadBalancer(LoadBalancerFactory.getLoadBalancer(frameworkConfig.getLoadBalancer()))
 ```
 
-��������ֵ `random` �������ձ��һ����ʵ���ؾ���������
+这样配置值 `random` 就能最终变成一个真实负载均衡器对象。
 
-����ǡ����� -> SPI ��չ -> ����·��Ч���ĵ�һ������·����
+这就是“配置 -> SPI 扩展 -> 主链路生效”的第一条典型路径。
 
 ---
 
-## 7. ���л���չ����ô�ӽ�����
+## 7. 序列化扩展是怎么接进来的
 
-�� `SerializerFactory`��
+看 `SerializerFactory`：
 
 ```java
 public class SerializerFactory {
@@ -288,55 +288,55 @@ public class SerializerFactory {
 }
 ```
 
-��δ���Ҫץס������ڣ�
+这段代码要抓住两个入口：
 
-### 7.1 �����������л���
+### 7.1 按名称拿序列化器
 
-�������û򷽷������ǳ��������磺
+用于配置或方法级覆盖场景，例如：
 
 ```java
 SerializerFactory.getSerializer("protobuf")
 ```
 
-### 7.2 �������������л���
+### 7.2 按类型码拿序列化器
 
-����Э�����׶Σ���Ϊ��Ϣͷ��ͨ������ֵ�� `serializerType`��
+用于协议解码阶段，因为消息头里通常是数值型 `serializerType`。
 
-��Ҳ��ΪʲôЭ������չ���ܶԽ�������
+这也是为什么协议层和扩展层能对接起来：
 
-- ���ý׶�ͨ�������ֱ���
-- ������Ϣͷ��ͨ�������������
+- 配置阶段通常按名字表达
+- 网络消息头里通常按类型码表达
 
-`SerializerFactory` �����Ž��������ֱ��﷽ʽ��
-
----
-
-## 8. Ϊʲô��Щ��չ����ֱ����ҵ�������ѡ
-
-����ܻ��룺
-
-`ҵ�����ֱ�� new һ�� RandomLoadBalancer �������ˣ�`
-
-�����Ͽ��ԣ�������ܿ�ͻ���֣�
-
-1. ҵ�����Ϳ��ʵ��ǿ���
-2. ��������Ҫ��ҵ�����
-3. ��������ͳһ����
-4. ����������ͬ�����л�
-
-����ǰ��Ŀ�������ǣ�
-
-- ����ֻ�����Ҫʲô���ԡ�
-- ����ֻ���𡰰������������ɶ���
-- ����·ֻ���ѽӿ������������ľ���ʵ������˭
-
-����ǵ��͵ġ�������չ���̡���
+`SerializerFactory` 正好桥接了这两种表达方式。
 
 ---
 
-## 9. �����������Ȳ��� consumer ���ñ�����
+## 8. 为什么这些扩展不是直接在业务代码里选
 
-ǰ�濴�� `RpcClientInvocationExecutor.execute(...)`���������ص㿴һ�飺
+你可能会想：
+
+`业务代码直接 new 一个 RandomLoadBalancer 不就行了？`
+
+表面上可以，但问题很快就会出现：
+
+1. 业务代码和框架实现强耦合
+2. 更换策略要改业务代码
+3. 很难做到统一配置
+4. 很难做到不同环境切换
+
+而当前项目的做法是：
+
+- 配置只表达“我要什么策略”
+- 工厂只负责“把这个策略名变成对象”
+- 主链路只消费接口能力，不关心具体实现类是谁
+
+这就是典型的“面向扩展点编程”。
+
+---
+
+## 9. 治理能力首先插在 consumer 调用编排里
+
+前面看过 `RpcClientInvocationExecutor.execute(...)`，这里再重点看一遍：
 
 ```java
 public RpcResponse execute(RpcRequest rpcRequest, RpcTransportInvoker transportInvoker) throws Exception {
@@ -364,48 +364,48 @@ public RpcResponse execute(RpcRequest rpcRequest, RpcTransportInvoker transportI
 }
 ```
 
-��δ���˵�� consumer ������������Ҫ��������λ�ã�
+这段代码说明 consumer 侧治理能力主要插在两个位置：
 
-### 9.1 ����ǰ����
+### 9.1 发送前限流
 
 ```java
 !rateLimiterManager.tryAcquire(...)
 ```
 
-���������ͨ������������������������ߡ�
+如果限流不通过，调用甚至不会往网络层走。
 
-### 9.2 invoker �׶ι�����
+### 9.2 invoker 阶段过滤器
 
 ```java
 FilterManager.getFilters(FilterPhase.INVOKER)
 ```
 
-�ʺϹҸ�����������������������߼��������۶ϡ�������ͳ�ơ�
+适合挂更靠近完整调用语义的治理逻辑，比如熔断、降级、统计。
 
-���������������Ƕ���������·֮��ġ�����ģ�顱�������ǲ�������·�ؼ�λ���ϵĿ��Ƶ㡣
+所以治理能力不是独立于主链路之外的“附加模块”，它们是插在主链路关键位置上的控制点。
 
 ---
 
-## 10. ����������Ϊʲô��Ҫ
+## 10. 方法级配置为什么重要
 
-ǰ��һֱ�ᵽ `InvocationOptionsResolver` �� `methodConfigs`��
+前面一直提到 `InvocationOptionsResolver` 和 `methodConfigs`。
 
-��˵����ǰ��Ŀ����ֻ��ȫ�����á�
+这说明当前项目不是只有全局配置。
 
-ΪʲôҪ�з��������ã�
+为什么要有方法级配置？
 
-��Ϊ��ʵ�ﲻͬ�����Ե��ò��Ե�Ҫ��������ͬ��
+因为现实里不同方法对调用策略的要求往往不同。
 
-���磺
+比如：
 
-- ��ѯ�ӿڿ����ʵ�����
-- �ۿ�ӿڿ��ܲ��ʺ�����
-- ĳЩ��Ƶ�ӿ���Ҫ���ϸ�����
-- ĳЩ�������������ø��̳�ʱ
+- 查询接口可以适当重试
+- 扣款接口可能不适合重试
+- 某些高频接口需要更严格限流
+- 某些轻量方法可以用更短超时
 
-������Ŀ�Ȱ���Щ�����������족������ `InvocationOptions`�������õ���ξ�������ϡ�
+所以项目先把这些“方法级差异”解析成 `InvocationOptions`，再作用到这次具体调用上。
 
-���� `applyInvocationOptions(...)` ���Ѿ������������ƣ�
+你在 `applyInvocationOptions(...)` 里已经看到了这个设计：
 
 ```java
 if (options.getReadTimeout() != null) {
@@ -419,13 +419,13 @@ if (options.getLoadBalancerName() != null && !options.getLoadBalancerName().isBl
 }
 ```
 
-Ҳ����˵�����������������ͣ�������ö�������Ǳ��۵�������������һ���֡�
+也就是说，方法级配置最后不是停留在配置对象里，而是被折叠成了这次请求的一部分。
 
 ---
 
-## 11. ��������ô������
+## 11. 重试是怎么工作的
 
-���Ժ����� `RetryExecutor`��
+重试核心在 `RetryExecutor`：
 
 ```java
 public RpcResponse executeWithRetry(RpcRequest request,
@@ -453,30 +453,30 @@ public RpcResponse executeWithRetry(RpcRequest request,
 }
 ```
 
-��δ��뽨�����ص��������㡣
+这段代码建议你重点理解两点。
 
-### 11.1 �����ǡ����ü�������
+### 11.1 重试是“调用级”能力
 
-��Χ�Ƶ���һ��ҵ�������Ƿ�Ҫ�ٳ���һ�Σ������ǵײ������Ƿ�Ͽ���
+它围绕的是一次业务请求是否要再尝试一次，而不是底层连接是否断开。
 
-### 11.2 �����Ƿ�����ȡ���ڲ���
+### 11.2 重试是否发生，取决于策略
 
-���������쳣��Ҫ���ԣ�Ҳ�����������ԡ�
+不是所有异常都要重试，也不是无限重试。
 
-Ҫ����
+要看：
 
-- ��ǰ�쳣����
-- ��ǰ�����Դ���
-- �����������
-- ���Բ��Է��ص��жϽ��
+- 当前异常类型
+- 当前已重试次数
+- 最大允许次数
+- 重试策略返回的判断结果
 
-���ԡ����ԡ�����һ���򵥵� `catch -> ����һ��`�������ܲ��Կ��Ƶĵ�������������
+所以“重试”不是一条简单的 `catch -> 再来一次`，而是受策略控制的调用治理能力。
 
 ---
 
-## 12. �۶Ϻ�ʵ������״̬Ϊʲô���ڵ���ִ��������
+## 12. 熔断和实例健康状态为什么放在调用执行器附近
 
-�� `invokeOnce(...)` ���������Ĵ��룺
+在 `invokeOnce(...)` 中有这样的代码：
 
 ```java
 CircuitBreaker instanceCircuitBreaker = circuitBreakerManager.getInstanceCircuitBreaker(
@@ -484,27 +484,27 @@ CircuitBreaker instanceCircuitBreaker = circuitBreakerManager.getInstanceCircuit
 instanceCircuitBreaker.recordSuccess();
 ```
 
-��˵���۶������ĵ��ǡ�ĳ�ε��ö�ĳ��ʵ���Ľ�����������
+这说明熔断器关心的是“某次调用对某个实例的健康反馈”。
 
-Ϊʲô���ʺϷ��ڵ���ִ����������
+为什么它适合放在调用执行器附近？
 
-��Ϊ�����������գ�
+因为这里正好掌握：
 
-- ��ǰ���õ����ĸ�����
-- ��ǰѡ�����ĸ���ַ
-- ��ε��óɹ�����ʧ��
+- 当前调用的是哪个服务
+- 当前选中了哪个地址
+- 这次调用成功还是失败
 
-��Щ��Ϣ�����۶��ж�����ؼ��ġ�
+这些信息对于熔断判断是最关键的。
 
-������۶��߼����������㣬�ò��������ַ���������������㣬��ȱ�ٸ��߲�ĵ������塣
+如果把熔断逻辑塞到代理层，拿不到具体地址；如果塞到纯网络层，又缺少更高层的调用语义。
 
-���Ե���ִ���������Ƿǳ�������λ�á�
+所以调用执行器附近是非常合理的位置。
 
 ---
 
-## 13. ����������������·�����ʲô��ɫ
+## 13. 降级能力在整个链路里扮演什么角色
 
-�� bootstrap �׶ο��Կ�����
+在 bootstrap 阶段可以看到：
 
 ```java
 DegradationPolicy degradationPolicy = DegradationPolicyFactory.create(
@@ -514,7 +514,7 @@ DegradationPolicy degradationPolicy = DegradationPolicyFactory.create(
 FilterRuntimeConfigurator.configureConsumer(frameworkConfig, degradationPolicy);
 ```
 
-provider ��Ҳ���������ã�
+provider 侧也有类似配置：
 
 ```java
 DegradationPolicy degradationPolicy = DegradationPolicyFactory.create(
@@ -524,17 +524,17 @@ DegradationPolicy degradationPolicy = DegradationPolicyFactory.create(
 FilterRuntimeConfigurator.configureProvider(frameworkConfig, degradationPolicy);
 ```
 
-������Ȱѽ�������ɣ�
+你可以先把降级理解成：
 
-`�����������޷������ṩ����ʱ������һ���ɽ��ܵĶ��׽����������ֱ�Ӱ�ʧ��ԭ���׸��ϲ㡣`
+`当主调用链无法正常提供服务时，返回一个可接受的兜底结果，而不是直接把失败原样抛给上层。`
 
-��ͨ��������������̣�������Ϊʧ�ܺ�Ķ��ײ��Դ��ڡ�
+它通常不会替代主流程，而是作为失败后的兜底策略存在。
 
-��Ҳ��Ϊʲô������ͨ������������ʱ���ò�����·��������ֱ��д���ں��ĵ��ô����
+这也是为什么它常常通过过滤器运行时配置插入链路，而不是直接写死在核心调用代码里。
 
 ---
 
-## 14. һ�š���������������㡱ͼ
+## 14. 一张“配置与治理插入点”图
 
 ```mermaid
 graph TD
@@ -543,76 +543,76 @@ graph TD
     B --> D["ServiceDiscovery / RpcClientConfig / LoadBalancer"]
     C --> E["RpcServerConfig / ServiceRegistry"]
     D --> F["RpcClientInvocationExecutor"]
-    F --> G["���������ý���"]
-    G --> H["����"]
+    F --> G["方法级配置解析"]
+    G --> H["限流"]
     H --> I["Invoker Filter"]
-    I --> J["��Ⱥ�ݴ� / ���� / �۶� / ����"]
-    J --> K["Transport ����"]
-    A --> L["SPI ��չѡ��"]
+    I --> J["集群容错 / 重试 / 熔断 / 降级"]
+    J --> K["Transport 发送"]
+    A --> L["SPI 扩展选择"]
     L --> M["LoadBalancerFactory"]
     L --> N["SerializerFactory"]
 ```
 
-����ͼ���ص㲻�Ǽ�סÿ�����������ǿ�����
+这张图的重点不是记住每个类名，而是看见：
 
-- �����Ƚ��� bootstrap
-- SPI ������ֵ�����ʵʵ��
-- ���������ٲ���������ؼ�λ��
-
----
-
-## 15. ��С����˵����һƪ����Ҫ�Ľ�����ʲô
-
-����ÿ�������Ҫ���ڱ�������
-
-������Ҫ������������ 5 �����ۡ�
-
-### 15.1 ���������� bootstrap �׶ν���ϵͳ
-
-���ǵȵ��÷���ʱ��ʱƴװ��
-
-### 15.2 SPI ��չ����ѡ����֡���ɡ�ʵ�ֶ���
-
-���� `random` ��ɸ��ؾ�������`protobuf` ������л�����
-
-### 15.3 �����������ǹ���ģ�飬���ǲ�������·�ؼ�λ��
-
-�������۶ϡ����ԡ�����������Ʈ��ϵͳ���档
-
-### 15.4 �����������ò�ͬ��������ʹ�ò�ͬ���ò���
-
-���ǿ�ܴӡ����á����򡰿ɾ�ϸ���ơ��Ĺؼ�һ����
-
-### 15.5 ���Ժ���������һ����
-
-- ���ԣ����·���һ�ε���
-- �������ָ��ײ�����
-
-����������һ�����ܻ졣
+- 配置先进入 bootstrap
+- SPI 把配置值变成真实实现
+- 治理能力再插进调用链关键位置
 
 ---
 
-## 16. ��һƪ��ʲô
+## 15. 对小白来说，这一篇最重要的结论是什么
 
-��һƪ�� `06-protocol-and-transport-story.md`��
+不是每个配置项都要现在背下来。
 
-��������Ѿ�֪����
+真正重要的是理解以下 5 个结论。
 
-- ��������ô����֯������
-- ���ú���չ����ô���ȥ��
-- ������������ô���õ������ϵ�
+### 15.1 配置首先在 bootstrap 阶段进入系统
 
-��һƪҪ����������ǣ�
+不是等调用发生时临时拼装。
 
-`RpcRequest ��������������ֽڣ�ͨ�����緢��ȥ��������һ�˻ָ��ɶ���ġ�`
+### 15.2 SPI 扩展负责把“名字”变成“实现对象”
+
+比如 `random` 变成负载均衡器，`protobuf` 变成序列化器。
+
+### 15.3 治理能力不是孤立模块，而是插在主链路关键位置
+
+限流、熔断、重试、降级都不是飘在系统外面。
+
+### 15.4 方法级配置让不同方法可以使用不同调用策略
+
+这是框架从“能用”走向“可精细控制”的关键一步。
+
+### 15.5 重试和重连不是一回事
+
+- 重试：重新发起一次调用
+- 重连：恢复底层连接
+
+这两个概念一定不能混。
 
 ---
 
-## 17. ��ƪԴ�붨λ
+## 16. 下一篇看什么
 
-�����ص������Щ�ļ���
+下一篇是 `06-protocol-and-transport-story.md`。
 
-- `rpc-core/src/main/java/com/rpc/core/config/RpcFrameworkConfig.java`
+到这里，你已经知道：
+
+- 调用是怎么被组织起来的
+- 配置和扩展是怎么插进去的
+- 治理能力是怎么作用到调用上的
+
+下一篇要解决的问题是：
+
+`RpcRequest 到底是怎样变成字节，通过网络发出去，再在另一端恢复成对象的。`
+
+---
+
+## 17. 本篇源码定位
+
+建议重点对照这些文件：
+
+- `rpc-core/src/main/java/com/rpc/core/config/framework/RpcFrameworkConfig.java`
 - `rpc-core/src/main/java/com/rpc/core/api/bootstrap/RpcConsumerBootstrap.java`
 - `rpc-core/src/main/java/com/rpc/core/api/bootstrap/RpcProviderBootstrap.java`
 - `rpc-core/src/main/java/com/rpc/core/extension/spi/ExtensionFactory.java`

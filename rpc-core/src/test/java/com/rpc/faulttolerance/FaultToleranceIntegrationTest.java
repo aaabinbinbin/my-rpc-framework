@@ -2,8 +2,8 @@ package com.rpc.faulttolerance;
 
 import com.rpc.core.common.constant.ErrorCode;
 import com.rpc.core.common.exception.RpcException;
-import com.rpc.core.protocol.RpcRequest;
-import com.rpc.core.protocol.RpcResponse;
+import com.rpc.core.protocol.message.RpcRequest;
+import com.rpc.core.protocol.message.RpcResponse;
 import com.rpc.core.resilience.CircuitBreakerState;
 import com.rpc.core.resilience.circuitbreaker.CircuitBreakerImpl;
 import com.rpc.core.resilience.retry.DefaultRetryStrategy;
@@ -21,6 +21,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * 故障容错集成测试。
+ *
+ * <p>测试目标：覆盖重试策略和熔断器的基础协作边界，包括可重试异常、
+ * 不可重试异常、中断保护、熔断打开、半开探测和最小调用次数保护。</p>
+ */
+@DisplayName("故障容错集成测试")
 class FaultToleranceIntegrationTest {
     private CircuitBreakerImpl circuitBreaker;
     private RetryExecutor retryExecutor;
@@ -36,8 +43,8 @@ class FaultToleranceIntegrationTest {
         testRequest.setMethodName("testMethod");
     }
 
+    @DisplayName("网络类可重试异常应触发重试并最终返回成功响应")
     @Test
-    @DisplayName("retry should succeed after transient failures")
     void testRetryOnNetworkFailure() throws Exception {
         AtomicInteger callCount = new AtomicInteger(0);
 
@@ -60,8 +67,8 @@ class FaultToleranceIntegrationTest {
         assertEquals(3, callCount.get());
     }
 
+    @DisplayName("非可重试 RPC 异常不应继续重试")
     @Test
-    @DisplayName("retry should stop on non-retryable exception")
     void testNoRetryForNonRetryableException() {
         AtomicInteger callCount = new AtomicInteger(0);
 
@@ -78,8 +85,61 @@ class FaultToleranceIntegrationTest {
         assertFalse(exception.isRetryable());
     }
 
+    @DisplayName("客户端繁忙异常不应继续重试")
     @Test
-    @DisplayName("circuit breaker should open after enough failures")
+    void testNoRetryForClientBusyException() {
+        AtomicInteger callCount = new AtomicInteger(0);
+
+        Callable<RpcResponse> mockCallable = () -> {
+            callCount.incrementAndGet();
+            throw new RpcException(ErrorCode.CLIENT_BUSY, "client budget exhausted");
+        };
+
+        RpcException exception = assertThrows(RpcException.class,
+                () -> retryExecutor.executeWithRetry(testRequest, mockCallable));
+
+        assertEquals(ErrorCode.CLIENT_BUSY, exception.getErrorCode());
+        assertEquals(1, callCount.get());
+        assertFalse(exception.isRetryable());
+    }
+
+    @DisplayName("未知本地异常不应继续重试并应原样抛出")
+    @Test
+    void testNoRetryForUnknownLocalException() {
+        AtomicInteger callCount = new AtomicInteger(0);
+
+        Callable<RpcResponse> mockCallable = () -> {
+            callCount.incrementAndGet();
+            throw new IllegalArgumentException("bad local state");
+        };
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> retryExecutor.executeWithRetry(testRequest, mockCallable));
+
+        assertEquals("bad local state", exception.getMessage());
+        assertEquals(1, callCount.get());
+    }
+
+    @DisplayName("重试遇到中断异常时应保留线程中断标记")
+    @Test
+    void testRetryPreservesInterruptStatus() {
+        AtomicInteger callCount = new AtomicInteger(0);
+        Thread.interrupted();
+
+        InterruptedException exception = assertThrows(InterruptedException.class,
+                () -> retryExecutor.executeWithRetry(testRequest, () -> {
+                    callCount.incrementAndGet();
+                    throw new InterruptedException("stop retry");
+                }));
+
+        assertEquals("stop retry", exception.getMessage());
+        assertEquals(1, callCount.get());
+        assertTrue(Thread.currentThread().isInterrupted());
+        Thread.interrupted();
+    }
+
+    @DisplayName("失败率达到阈值后熔断器应打开")
+    @Test
     void testCircuitBreakerOpensOnFailures() {
         for (int i = 0; i < 10; i++) {
             circuitBreaker.recordFailure();
@@ -89,8 +149,8 @@ class FaultToleranceIntegrationTest {
         assertFalse(circuitBreaker.allowRequest());
     }
 
+    @DisplayName("熔断器等待窗口结束后应进入半开并在成功探测后关闭")
     @Test
-    @DisplayName("circuit breaker should recover after wait window and success")
     void testCircuitBreakerRecovery() throws InterruptedException {
         for (int i = 0; i < 10; i++) {
             circuitBreaker.recordFailure();
@@ -110,8 +170,8 @@ class FaultToleranceIntegrationTest {
         assertTrue(circuitBreaker.allowRequest());
     }
 
+    @DisplayName("半开探测失败时熔断器应重新打开")
     @Test
-    @DisplayName("failure during half-open should reopen circuit breaker")
     void testHalfOpenFailureReopensCircuitBreaker() throws InterruptedException {
         for (int i = 0; i < 10; i++) {
             circuitBreaker.recordFailure();
@@ -127,8 +187,8 @@ class FaultToleranceIntegrationTest {
         assertFalse(circuitBreaker.allowRequest());
     }
 
+    @DisplayName("未达到最小调用次数时熔断器不应打开")
     @Test
-    @DisplayName("circuit breaker should stay closed before min call threshold")
     void testMinNumberOfCallsProtection() {
         for (int i = 0; i < 3; i++) {
             circuitBreaker.recordFailure();
