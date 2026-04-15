@@ -272,6 +272,8 @@ public class BenchmarkConsoleController {
         private final LoadStats stats = new LoadStats();
         private final AtomicBoolean running = new AtomicBoolean(false);
         private final AtomicLong sequence = new AtomicLong();
+        private final AtomicLong activeWorkers = new AtomicLong();
+        private final AtomicReference<Instant> finishedAt = new AtomicReference<>();
         private final String payload;
         private final Instant startedAt = Instant.now();
         private final Instant plannedEndAt;
@@ -286,6 +288,7 @@ public class BenchmarkConsoleController {
 
         private void start() {
             running.set(true);
+            activeWorkers.set(options.threads);
             executor = Executors.newFixedThreadPool(options.threads);
             long endNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(options.durationSeconds);
             for (int i = 0; i < options.threads; i++) {
@@ -295,17 +298,20 @@ public class BenchmarkConsoleController {
         }
 
         private void runWorker(long endNanos) {
-            while (running.get() && System.nanoTime() < endNanos) {
-                long start = System.nanoTime();
-                try {
-                    invoke();
-                    stats.recordSuccess(System.nanoTime() - start);
-                } catch (Throwable throwable) {
-                    stats.recordFailure(System.nanoTime() - start);
+            try {
+                while (running.get() && System.nanoTime() < endNanos) {
+                    long start = System.nanoTime();
+                    try {
+                        invoke();
+                        stats.recordSuccess(System.nanoTime() - start);
+                    } catch (Throwable throwable) {
+                        stats.recordFailure(System.nanoTime() - start);
+                    }
                 }
-            }
-            if (System.nanoTime() >= endNanos) {
-                running.set(false);
+            } finally {
+                if (activeWorkers.decrementAndGet() == 0) {
+                    finish();
+                }
             }
         }
 
@@ -342,10 +348,15 @@ public class BenchmarkConsoleController {
         }
 
         private void stop() {
-            running.set(false);
+            finish();
             if (executor != null) {
                 executor.shutdownNow();
             }
+        }
+
+        private void finish() {
+            running.set(false);
+            finishedAt.compareAndSet(null, Instant.now());
         }
 
         private boolean isRunning() {
@@ -353,7 +364,7 @@ public class BenchmarkConsoleController {
         }
 
         private Map<String, Object> snapshot() {
-            return stats.snapshot(id, running.get(), startedAt, plannedEndAt, options);
+            return stats.snapshot(id, running.get(), startedAt, plannedEndAt, finishedAt.get(), options);
         }
     }
 
@@ -385,14 +396,15 @@ public class BenchmarkConsoleController {
         }
 
         private Map<String, Object> snapshot(String id, boolean running, Instant startedAt,
-                                             Instant plannedEndAt, LoadOptions options) {
+                                             Instant plannedEndAt, Instant finishedAt, LoadOptions options) {
             long successCount = success.sum();
             long failureCount = failure.sum();
             long total = successCount + failureCount;
+            Instant snapshotAt = running || finishedAt == null ? Instant.now() : finishedAt;
             double elapsedSeconds = Math.max(0.001D,
-                    (System.currentTimeMillis() - startedAt.toEpochMilli()) / 1000.0D);
+                    (snapshotAt.toEpochMilli() - startedAt.toEpochMilli()) / 1000.0D);
             double remainingSeconds = Math.max(0.0D,
-                    (plannedEndAt.toEpochMilli() - System.currentTimeMillis()) / 1000.0D);
+                    (plannedEndAt.toEpochMilli() - snapshotAt.toEpochMilli()) / 1000.0D);
             List<Long> samples = new ArrayList<>(latencySamples);
             Collections.sort(samples);
             Map<String, Object> result = new LinkedHashMap<>();
@@ -402,6 +414,7 @@ public class BenchmarkConsoleController {
             result.put("threads", options.threads);
             result.put("startedAt", startedAt.toString());
             result.put("plannedEndAt", plannedEndAt.toString());
+            result.put("finishedAt", finishedAt == null ? null : finishedAt.toString());
             result.put("elapsedSeconds", elapsedSeconds);
             result.put("remainingSeconds", running ? remainingSeconds : 0.0D);
             result.put("total", total);

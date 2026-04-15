@@ -96,6 +96,8 @@ ExampleConsumerApplication
 
 文档分两层：
 
+0. 使用说明书：适合按步骤运行、接入、配置和部署项目。
+   入口：[doc/06-user-manual.md](./doc/06-user-manual.md)
 1. 教材层：适合从零开始学习项目。
    入口：[doc/README.md](./doc/README.md)
 2. 知识库层：适合快速查询模块、类、调用链、配置和排障。

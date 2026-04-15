@@ -27,6 +27,18 @@ doc/05-testing/results/RESULT_TEMPLATE.md
 doc/05-testing/cloud-provider-local-consumer.md
 ```
 
+云服务器 provider + 本地 consumer 阶段性压测结果：
+
+```text
+doc/05-testing/cloud-benchmark-report.md
+```
+
+最终测试结论与面试表达：
+
+```text
+doc/05-testing/final-conclusion-and-interview.md
+```
+
 ## 1. 重要前提
 
 ### 1.1 当前 HTTP 接口测到的是 HTTP + RPC 链路

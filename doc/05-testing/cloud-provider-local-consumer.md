@@ -82,63 +82,111 @@ docker ps
 zookeeper:3.5.8   0.0.0.0:2181->2181/tcp
 ```
 
-### 3.2 检查 Java 和 Maven
+### 3.2 检查 Java
 
 在云服务器执行：
 
 ```bash
 java -version
-mvn -version
 ```
+
+要求版本至少是 Java 11。当前项目打出来的 jar 不能用 Java 8 运行；如果输出里出现 `1.8.0`，需要先升级或切换 JDK。
 
 如果没有安装：
 
 ```bash
-dnf install -y java-17-openjdk-devel maven git
+dnf install -y java-17-openjdk-devel
 ```
 
 如果你的系统没有 `dnf`，改用：
 
 ```bash
-yum install -y java-17-openjdk-devel maven git
+yum install -y java-17-openjdk-devel
 ```
 
-### 3.3 上传或拉取项目
+如果服务器上同时存在多个 Java 版本，执行下面的命令选择 Java 11 或 Java 17：
 
-如果使用 Git：
+```bash
+alternatives --config java
+```
+
+切换后再次确认：
+
+```bash
+java -version
+```
+
+云服务器只运行已经打好的 Spring Boot jar 时，不需要安装 Maven，也不需要上传完整项目源码。
+
+### 3.3 本地打包 provider 可执行 jar
+
+在本地 Windows 的项目根目录执行：
+
+```powershell
+mvn -pl example-provider -am clean package -DskipTests
+```
+
+打包成功后，确认 jar 里有 `BOOT-INF`：
+
+```powershell
+jar tf .\example-provider\target\example-provider-1.0-SNAPSHOT.jar | Select-String -Pattern "^BOOT-INF/" | Select-Object -First 5
+```
+
+如果能看到类似下面的内容，说明它已经是 Spring Boot 可执行 jar：
+
+```text
+BOOT-INF/
+BOOT-INF/classes/
+BOOT-INF/classes/com/
+```
+
+需要上传到云服务器的文件只有：
+
+```text
+example-provider/target/example-provider-1.0-SNAPSHOT.jar
+```
+
+### 3.4 上传 provider jar
+
+可以用 FinalShell 把 jar 上传到云服务器，例如放到：
+
+```text
+/root/my-rpc-framework-deploy/example-provider-1.0-SNAPSHOT.jar
+```
+
+也可以在本地 PowerShell 使用 `scp`：
+
+```powershell
+ssh root@8.134.204.101 "mkdir -p /root/my-rpc-framework-deploy"
+scp .\example-provider\target\example-provider-1.0-SNAPSHOT.jar root@8.134.204.101:/root/my-rpc-framework-deploy/
+```
+
+上传后在云服务器上检查文件：
+
+```bash
+ls -lh /root/my-rpc-framework-deploy/example-provider-1.0-SNAPSHOT.jar
+```
+
+如果你仍然想在云服务器上拉取源码并打包，也可以使用下面的备用方式：
 
 ```bash
 git clone <你的仓库地址>
 cd my-rpc-framework
-```
-
-如果使用 FinalShell 上传，把整个项目上传到云服务器，例如：
-
-```text
-/root/my-rpc-framework
-```
-
-然后进入目录：
-
-```bash
-cd /root/my-rpc-framework
-```
-
-### 3.4 构建项目
-
-```bash
 mvn -pl example-provider -am package -DskipTests
 ```
 
 ## 4. 云服务器启动 provider
 
-在云服务器项目根目录执行：
+在云服务器执行：
 
 ```bash
-export RPC_REGISTRY_ADDRESS=127.0.0.1:2181
+cd /root/my-rpc-framework-deploy
 
-mvn -pl example-provider -am spring-boot:run \
-  -Dspring-boot.run.arguments="--rpc.registry.address=127.0.0.1:2181 --rpc.server.host=127.0.0.1 --rpc.server.port=19090 --server.port=18080"
+java -jar example-provider-1.0-SNAPSHOT.jar \
+  --rpc.registry.address=127.0.0.1:2181 \
+  --rpc.server.host=127.0.0.1 \
+  --rpc.server.port=19090 \
+  --server.port=18080
 ```
 
 注意这里故意使用：

@@ -21,6 +21,8 @@
 
 当前 `doc` 目录分成两层使用：
 
+0. 使用说明书：[`06-user-manual.md`](./06-user-manual.md)。
+   这层适合按步骤运行、接入、配置、部署和排障。
 1. 教材层：`01-start-here`、`02-main-story`、`03-source-reading`、`04-output`。
    这层适合从零开始连续学习，目标是从“会运行”走到“能解释实现”。
 2. 知识库层：[`kb/00-index.md`](./kb/00-index.md)。

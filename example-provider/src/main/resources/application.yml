@@ -3,5 +3,5 @@ server:
 
 rpc:
   registry:
-    address: ${RPC_REGISTRY_ADDRESS:8.134.204.101:2181}
+    address: ${RPC_REGISTRY_ADDRESS:127.0.0.1:2181}
 #    timeout: ${RPC_REGISTRY_TIMEOUT:15000}
